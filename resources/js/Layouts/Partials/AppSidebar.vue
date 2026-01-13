@@ -6,7 +6,7 @@ const page = usePage();
 const user = computed(() => page.props.auth.user);
 const userRole = computed(() => user.value?.role);
 
-// --- LOGIKA ROLE (Tetap Sama) ---
+// --- LOGIKA ROLE ---
 const isSuperAdmin = computed(() => userRole.value === 'super_admin'); 
 const isPrmAdmin   = computed(() => userRole.value === 'admin_prm');   
 const isAumAdmin   = computed(() => userRole.value === 'admin_aum');   
@@ -14,57 +14,79 @@ const isAumAdmin   = computed(() => userRole.value === 'admin_aum');
 const canManageMembers = computed(() => ['super_admin', 'admin_prm'].includes(userRole.value));
 const canManageResources = computed(() => ['super_admin', 'admin_prm', 'admin_aum'].includes(userRole.value));
 
+// --- STRUKTUR MENU ENTERPRISE ---
 const menuItems = computed(() => [
     {
-        header: 'UTAMA',
+        header: 'OVERVIEW',
         show: true, 
         items: [
             { label: 'Dashboard', route: 'dashboard', icon: 'pi pi-home', show: true },
         ]
     },
     {
-        header: 'MODUL',
+        header: 'SUMBER DAYA ORGANISASI', // Core Resources
         show: canManageResources.value, 
         items: [
-            { label: 'Data Anggota', route: 'members.index', icon: 'pi pi-users', show: canManageMembers.value },
-            { label: 'Keuangan', route: 'transactions.index', icon: 'pi pi-wallet', show: true },
-            { label: 'Aset & Inventaris', route: 'assets.index', icon: 'pi pi-box', show: true },
+            // Database Anggota (Member Base)
+            { label: 'Database Anggota', route: 'members.index', icon: 'pi pi-users', show: canManageMembers.value },
+            
+            // Keuangan (Treasury)
+            { label: 'Manajemen Keuangan', route: 'transactions.index', icon: 'pi pi-wallet', show: true },
+            
+            // Aset (Fixed Assets)
+            { label: 'Manajemen Aset', route: 'assets.index', icon: 'pi pi-box', show: true },
         ]
     },
     {
-        header: 'ADMINISTRASI',
-        show: isSuperAdmin.value, 
+        header: 'TATA KELOLA ADMINISTRASI', // Office Automation (New Section)
+        show: canManageResources.value,
         items: [
-            { label: 'Manajemen User', route: 'users.index', icon: 'pi pi-user-edit', show: true },
-            { label: 'Master Organisasi', route: 'organizations.index', icon: 'pi pi-sitemap', show: true },
+            // [BARU] E-Arsip & Persuratan
+            // Mencakup: Surat Masuk, Surat Keluar, Bank SK, Disposisi
+            { label: 'E-Arsip & Persuratan', route: 'archives.index', icon: 'pi pi-envelope', show: true },
         ]
     },
     {
-        header: 'WEB PUBLIK',
+        header: 'ANALISIS DATA & LAPORAN', // Strategic Insights
+        show: canManageResources.value, 
+        items: [
+            // [BARU] Peta Dakwah (GIS)
+            // Mencakup: Peta Sebaran AUM, Zonasi Ranting
+            { label: 'Peta Sebaran Dakwah', route: 'maps.index', icon: 'pi pi-map', show: true },
+            
+            // Pusat Laporan (Reporting Hub)
+            { label: 'Pusat Laporan Terpadu', route: 'reports.index', icon: 'pi pi-chart-pie', show: true },
+        ]
+    },
+    {
+        header: 'SYSTEM & SECURITY', // System Core
         show: isSuperAdmin.value, 
         items: [
-            { label: 'Berita & Artikel', route: 'posts.index', icon: 'pi pi-megaphone', show: true },
-            { label: 'Pengaturan Web', route: 'settings.edit', icon: 'pi pi-cog', show: true },
+            { label: 'Pengguna & Hak Akses', route: 'users.index', icon: 'pi pi-shield', show: true },
+            { label: 'Struktur Organisasi', route: 'organizations.index', icon: 'pi pi-sitemap', show: true },
+        ]
+    },
+    {
+        header: 'PUBLIKASI & CMS', // Web Management
+        show: isSuperAdmin.value, 
+        items: [
+            { label: 'Portal Berita', route: 'posts.index', icon: 'pi pi-megaphone', show: true },
+            { label: 'Identitas Website', route: 'settings.edit', icon: 'pi pi-globe', show: true },
         ]
     }
 ]);
 
 const isActive = (routeName) => {
+    // Menangani route placeholder (null/undefined) agar tidak error
+    if (!routeName) return false;
     return route().current(routeName + '*');
 };
-
-const roleLabel = computed(() => {
-    if (isSuperAdmin.value) return 'Administrator Cabang';
-    if (isPrmAdmin.value) return 'Admin Ranting';
-    if (isAumAdmin.value) return 'Admin Amal Usaha';
-    return 'Anggota';
-});
 </script>
 
 <template>
-    <div class="h-full flex flex-col bg-white/80 supports-[backdrop-filter]:bg-white/60 backdrop-blur-xl border-r border-white/50 shadow-[4px_0_16px_rgba(0,0,0,0.02)]">
+    <div class="h-screen sticky top-0 flex flex-col bg-white/80 supports-[backdrop-filter]:bg-white/60 backdrop-blur-xl border-r border-white/50 shadow-[4px_0_16px_rgba(0,0,0,0.02)] z-30">
         
-        <div class="h-16 flex items-center justify-center px-6 relative mb-2 border-b border-dashed border-emerald-100/50">
+        <div class="h-16 shrink-0 flex items-center justify-center px-6 relative mb-2 border-b border-dashed border-emerald-100/50">
             <Link :href="route('dashboard')" class="flex items-center gap-3.5 group relative z-10 p-2 rounded-xl transition-colors duration-300 hover:bg-white/40">
                 
                 <div class="absolute inset-0 bg-gradient-to-tr from-emerald-400/30 to-teal-400/0 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -94,7 +116,7 @@ const roleLabel = computed(() => {
             <template v-for="(group, index) in menuItems" :key="index">
                 <div v-if="group.show !== false">
                     
-                    <div v-if="group.header" class="px-4 mb-3 text-[12px] font-extrabold text-gray-400 uppercase tracking-widest">
+                    <div v-if="group.header" class="px-4 mb-3 text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">
                         {{ group.header }}
                     </div>
 
@@ -102,7 +124,7 @@ const roleLabel = computed(() => {
                         <template v-for="(item, itemIndex) in group.items" :key="itemIndex">
                             
                             <Link v-if="item.show !== false"
-                                  :href="item.route ? route(item.route) : '#'"
+                                  :href="item.route && route().has(item.route) ? route(item.route) : '#'"
                                   class="flex items-center gap-3 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 relative overflow-hidden group"
                                   :class="isActive(item.route) 
                                     ? 'text-emerald-800 font-bold bg-emerald-50/50' 
@@ -122,7 +144,25 @@ const roleLabel = computed(() => {
                 </div>
             </template>
 
+            <div class="h-8"></div>
         </div>
 
     </div>
 </template>
+
+<style scoped>
+/* Custom Scrollbar Styling (Opsional, agar lebih cantik) */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(167, 243, 208, 0.5); /* Emerald-200 with opacity */
+    border-radius: 20px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(52, 211, 153, 0.8); /* Emerald-400 */
+}
+</style>

@@ -19,6 +19,9 @@ use App\Http\Controllers\App\Reference\UserController;
 use App\Http\Controllers\App\Reference\OrganizationController;
 use App\Http\Controllers\App\Web\PostController as AdminPostController;
 use App\Http\Controllers\App\Web\SettingController;
+use App\Http\Controllers\App\Archives\ArchiveController;
+use App\Http\Controllers\App\Maps\MapController;
+use App\Http\Controllers\App\Reports\ReportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -111,19 +114,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     Route::resource('posts', AdminPostController::class); // Admin Posts
     Route::delete('/posts/attachment/{id}', [AdminPostController::class, 'destroyAttachment'])
-        ->name('posts.attachment.destroy');
+    ->name('posts.attachment.destroy');
     Route::delete('/posts/gallery/{id}', [AdminPostController::class, 'destroyGallery'])
-        ->name('posts.gallery.destroy');
+    ->name('posts.gallery.destroy');
     
     Route::controller(SettingController::class)->prefix('settings')->name('settings.')->group(function() {
         Route::get('/', 'edit')->name('edit');
         Route::patch('/', 'update')->name('update');
     });
     
-
-
     // =========================================================================
-    // MODUL 6: PROFIL PRIBADI (ME)
+    // MODUL 5: PUSAT PELAPORAN SIM-PCMU
+    // =========================================================================
+    Route::resource('reports', ReportController::class);
+    
+    // =========================================================================
+    // MODUL 6: PUSAT E-ARSIP (PERSURATAN)
+    // =========================================================================
+    Route::resource('archives', ArchiveController::class);
+    
+    // =========================================================================
+    // MODUL 7: PUSAT PETA SEBARAN SIM-PCMU
+    // =========================================================================
+    Route::resource('maps', MapController::class);
+    
+    // =========================================================================
+    // MODUL 8: PROFIL PRIBADI (ME)
     // =========================================================================
     Route::prefix('profile')->name('profile.')->controller(ProfileController::class)->group(function () {
         Route::get('/me', 'myProfile')->name('me');

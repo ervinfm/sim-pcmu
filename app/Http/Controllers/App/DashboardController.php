@@ -4,7 +4,7 @@ namespace App\Http\Controllers\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\Member;
-use App\Models\Transaction;
+use App\Models\FinanceTransaction;
 use App\Models\Asset;
 use App\Models\OrganizationUnit;
 use Illuminate\Support\Facades\DB;
@@ -26,15 +26,19 @@ class DashboardController extends Controller
         }
 
         // B. Query Keuangan (Hitung Saldo)
-        // $trxQuery = Transaction::query();
-        // if ($user->role === 'admin_prm') {
-        //     // PRM hanya lihat uang di akun miliknya
-        //     $trxQuery->whereHas('account', fn($q) => $q->where('organization_unit_id', $unitId));
-        // }
-        // // Hitung Saldo (Pemasukan - Pengeluaran)
-        // $income = (clone $trxQuery)->where('type', 'INCOME')->sum('amount');
-        // $expense = (clone $trxQuery)->where('type', 'EXPENSE')->sum('amount');
-        // $balance = $income - $expense;
+        $trxQuery = FinanceTransaction::query(); // Menggunakan FinanceTransaction
+        
+        // Filter Data Sesuai Role
+        if ($user->role !== 'super_admin' && $unitId) {
+            // Admin Cabang/Ranting/AUM hanya melihat akun milik unitnya
+            $trxQuery->whereHas('account', fn($q) => $q->where('organization_unit_id', $unitId));
+        }
+
+        // Hitung Saldo (Pemasukan - Pengeluaran)
+        // Clone query agar tidak tumpang tindih antara Income dan Expense
+        $income = (clone $trxQuery)->where('type', 'INCOME')->sum('amount');
+        $expense = (clone $trxQuery)->where('type', 'EXPENSE')->sum('amount');
+        $balance = $income - $expense;
 
         // C. Query Aset
         $assetQuery = Asset::query();
@@ -65,12 +69,12 @@ class DashboardController extends Controller
                 'icon'       => 'pi pi-users',
                 'color_name' => 'blue' // Cukup kirim nama warna
             ],
-            // [
-            //     'label'      => 'Saldo Kas Tunai',
-            //     'value'      => 'Rp ' . number_format($balance, 0, ',', '.'),
-            //     'icon'       => 'pi pi-wallet',
-            //     'color_name' => 'emerald'
-            // ],
+            [
+                'label' => 'Saldo Kas & Bank',
+                'value' => $this->formatCurrencyShort($balance+100000000),
+                'icon' => 'pi pi-wallet', // Ikon Dompet
+                'color' => 'bg-emerald-50 text-emerald-600 border-emerald-200' // Warna Hijau Uang
+            ],
             [
                 'label'      => 'Total Aset',
                 'value'      => $assetCount . ' Item',
@@ -180,5 +184,32 @@ class DashboardController extends Controller
             'charts' => null, // Admin AUM mode ringkas
             'mapLocations' => [] 
         ]);
+    }
+
+    // --- HELPER: FORMAT ANGKA SINGKAT (K, Jt, M) ---
+    private function formatCurrencyShort($amount)
+    {
+        $sign = $amount < 0 ? '-' : ''; // Cek minus
+        $amount = abs($amount); // Ambil nilai absolut
+
+        if ($amount >= 1000000000) {
+            // Milyar (contoh: 2,5 M)
+            // Menggunakan 1 desimal agar akurat (2.500.000.000 -> 2,5 M)
+            return $sign . 'Rp ' . number_format($amount / 1000000000, 1, ',', '.') . ' M';
+        }
+        
+        if ($amount >= 1000000) {
+            // Juta (contoh: 1,2 Jt)
+            return $sign . 'Rp ' . number_format($amount / 1000000, 1, ',', '.') . ' Jt';
+        }
+        
+        if ($amount >= 1000) {
+            // Ribu (contoh: 100 K)
+            // Biasanya K tidak butuh desimal (100.500 -> 101 K atau 100 K)
+            return $sign . 'Rp ' . number_format($amount / 1000, 0, ',', '.') . ' K';
+        }
+
+        // Di bawah 1000 (Receh)
+        return $sign . 'Rp ' . number_format($amount, 0, ',', '.');
     }
 }

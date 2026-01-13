@@ -72,6 +72,15 @@ const getTheme = (colorName) => {
     return themes[colorName] || themes.gray; // Default ke gray jika warna tidak ditemukan
 };
 
+// --- LOGIKA AUTO-RESIZE FONT (Smart Scaling) ---
+const getDynamicFontSize = (text) => {
+    if (!text) return 'text-3xl';
+    const length = text.toString().length;
+    if (length > 15) return 'text-xl';      
+    if (length > 12) return 'text-2xl';     
+    return 'text-4xl';                      
+};
+
 onMounted(() => {
     if (props.charts) {
         // 1. Gender (Donut)
