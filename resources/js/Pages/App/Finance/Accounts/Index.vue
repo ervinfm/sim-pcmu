@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import { Head, Link, useForm, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import FinanceNavigation from '@/Components/Finance/FinanceNavigation.vue';
 
 // Components
 import DataTable from 'primevue/datatable';
@@ -113,12 +114,12 @@ const getTypeSeverity = (type) => {
     <Head title="Manajemen Akun Rekening" />
 
     <AppLayout>
-        <div class="max-w-6xl mx-auto space-y-6 pb-20">
+        <div class="px-4 md:px-6 space-y-6">
             
-            <div class="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+            <!-- <div class="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
                 <div>
                     <div class="flex items-center gap-3">
-                        <Link :href="route('transactions.index')">
+                        <Link :href="route('finance.transactions.index')">
                             <Button icon="pi pi-arrow-left" text rounded severity="secondary" />
                         </Link>
                         <div>
@@ -135,8 +136,24 @@ const getTypeSeverity = (type) => {
                     </IconField>
                     <Button label="Akun Baru" icon="pi pi-plus" @click="openCreate" class="!bg-slate-900 !border-slate-900 !rounded-xl font-bold shadow-lg" />
                 </div>
-            </div>
+            </div> -->
 
+            
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-black text-gray-800 tracking-tight">Master Data Akun (COA)</h1>
+                    <p class="text-gray-500 text-sm">Kelola hierarki akun aset, pendapatan, dan pengeluaran.</p>
+                </div>
+                
+                <button @click="openCreateModal" 
+                class="bg-emerald-600 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:shadow-none transition-all font-bold text-sm flex items-center gap-2">
+                <i class="pi pi-plus-circle"></i>
+                Tambah Akun
+                </button>
+            </div>
+        
+            <FinanceNavigation />
+            
             <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                 <DataTable :value="accounts.data" stripedRows class="w-full">
                     <template #empty>

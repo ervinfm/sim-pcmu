@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { FilterMatchMode } from '@primevue/core/api';
+import FinanceNavigation from '@/Components/Finance/FinanceNavigation.vue';
 
 // PrimeVue v4 Components
 import DataTable from 'primevue/datatable';
@@ -18,74 +19,113 @@ import ConfirmPopup from 'primevue/confirmpopup';
 import Badge from 'primevue/badge';
 import { useConfirm } from "primevue/useconfirm";
 
-import { useForm } from '@inertiajs/vue3';
-import Dialog from 'primevue/dialog';
-import Password from 'primevue/password';
-import Checkbox from 'primevue/checkbox';
-
-// --- LOGIC TAMBAH AKUN ---
-const showModal = ref(false);
-
-const accountForm = useForm({
-    name: '',
-    type: 'ASSET',
-    is_cash: false,
-    password: '' // Konfirmasi Password
+// --- PROPS ---
+const props = defineProps({
+    transactions: Array,
+    units: {
+        type: Array,
+        default: () => []
+    },
+    balances: Object,
+    errors: Object,
+    // [BARU] Prop untuk cek status setup
+    hasOpeningBalance: { 
+        type: Boolean, 
+        default: true // Default true agar tidak merah jika backend belum kirim
+    } 
 });
 
-const accountTypes = [
-    { label: 'Harta / Aset', value: 'ASSET' },
-    { label: 'Kewajiban / Utang', value: 'LIABILITY' },
-    { label: 'Pendapatan', value: 'REVENUE' },
-    { label: 'Pengeluaran', value: 'EXPENSE' }
+// --- NAVIGATION TABS CONFIG ---
+// Menu Tab untuk Navigasi Antar Sub-Modul Finance
+const navItems = computed(() => [
+    { 
+        label: 'Transaksi', 
+        route: 'finance.transactions.index', 
+        active: true, // Halaman ini
+        icon: 'pi pi-list' 
+    },
+    { 
+        label: 'Laporan', 
+        route: 'finance.reports.index', 
+        active: false,
+        icon: 'pi pi-chart-bar' 
+    },
+    { 
+        label: 'Saldo Awal', 
+        route: 'finance.opening-balances.index', 
+        active: false,
+        icon: 'pi pi-wallet',
+        // Tampilkan badge warning jika belum setup
+        showWarning: !props.hasOpeningBalance 
+    },
+    { 
+        label: 'Tutup Buku', 
+        route: 'finance.closing-periods.index', 
+        active: false,
+        icon: 'pi pi-lock' 
+    },
+    { 
+        label: 'Master Akun', 
+        route: 'finance.accounts.index', 
+        active: false,
+        icon: 'pi pi-book' 
+    }
+]);
+
+// --- STATE FILTER CLIENT-SIDE ---
+const filters = ref({
+    global: { value: null, matchMode: FilterMatchMode.CONTAINS },
+    type: { value: null, matchMode: FilterMatchMode.EQUALS },
+    organization_unit_id: { value: null, matchMode: FilterMatchMode.EQUALS },
+});
+
+// State untuk UI Filter (Tombol & Dropdown)
+const selectedType = ref(null);
+const selectedUnit = ref(null);
+
+const typeOptions = [
+    { label: 'Semua', value: null },
+    { label: 'Pemasukan', value: 'INCOME' },
+    { label: 'Pengeluaran', value: 'EXPENSE' },
+    { label: 'Transfer', value: 'TRANSFER' },
 ];
 
-const submitAccount = () => {
-    accountForm.post(route('finance.accounts.store'), {
-        onSuccess: () => {
-            showModal.value = false;
-            accountForm.reset();
-        },
-        preserveScroll: true
-    });
-};
-
-const props = defineProps({
-    transactions: Object,
-    balances: Object, // { total: 1000, details: [...] }
-    filters: Object,
-    units: Array
+// --- WATCHERS ---
+watch(selectedType, (newVal) => {
+    filters.value.type.value = newVal;
+});
+watch(selectedUnit, (newVal) => {
+    filters.value.organization_unit_id.value = newVal;
 });
 
-// --- FORMATTER ---
+// --- HELPER FORMATTING ---
 const formatCurrency = (value) => {
-    return new Intl.NumberFormat('id-ID', {
-        style: 'currency',
-        currency: 'IDR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(value);
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 };
 
-const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('id-ID', {
-        day: 'numeric', month: 'short', year: 'numeric'
-    });
+const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-const formatTime = (date) => {
-    return new Date(date).toLocaleTimeString('id-ID', {
-        hour: '2-digit', minute: '2-digit'
-    });
+const formatTime = (dateString) => {
+    return new Date(dateString).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 };
 
-// --- LOGIC UI HELPER ---
 const getSeverity = (type) => {
     switch (type) {
         case 'INCOME': return 'success';
         case 'EXPENSE': return 'danger';
         case 'TRANSFER': return 'info';
         default: return 'secondary';
+    }
+};
+
+const getLabel = (type) => {
+    switch (type) {
+        case 'INCOME': return 'Pemasukan';
+        case 'EXPENSE': return 'Pengeluaran';
+        case 'TRANSFER': return 'Transfer';
+        default: return type;
     }
 };
 
@@ -98,196 +138,72 @@ const getIcon = (type) => {
     }
 };
 
-const getLabel = (type) => {
-    const map = { 'INCOME': 'Pemasukan', 'EXPENSE': 'Pengeluaran', 'TRANSFER': 'Mutasi' };
-    return map[type] || type;
-};
-
-// --- FILTER LOGIC ---
-const search = ref(props.filters.search || '');
-const selectedType = ref(props.filters.type || null);
-const selectedUnit = ref(props.filters.unit_id || null);
-const viewMode = ref('list'); // 'list' only for now as table is primary
-
-const typeOptions = [
-    { label: 'Semua', value: null },
-    { label: 'Masuk', value: 'INCOME' },
-    { label: 'Keluar', value: 'EXPENSE' },
-    { label: 'Mutasi', value: 'TRANSFER' }
-];
-
-let timeout = null;
-const handleSearch = () => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => {
-        router.get(route('transactions.index'), { 
-            search: search.value, 
-            type: selectedType.value,
-            unit_id: selectedUnit.value
-        }, { preserveState: true, replace: true });
-    }, 300);
-};
-
-watch([selectedType, selectedUnit], handleSearch);
-
 // --- DELETE LOGIC ---
 const confirm = useConfirm();
 const handleDelete = (event, id) => {
     confirm.require({
         target: event.currentTarget,
-        message: 'Hapus transaksi ini? Saldo akan dikembalikan (Rollback).',
-        header: 'Konfirmasi Hapus',
+        message: 'Hapus transaksi ini? Data jurnal juga akan terhapus.',
         icon: 'pi pi-exclamation-triangle',
-        acceptClass: 'p-button-danger',
-        accept: () => router.delete(route('transactions.destroy', id))
+        rejectProps: { label: 'Batal', severity: 'secondary', outlined: true },
+        acceptProps: { label: 'Hapus', severity: 'danger' },
+        accept: () => {
+            router.delete(route('transactions.destroy', id), {
+                preserveScroll: true,
+            });
+        }
     });
+};
+
+// Helper route check agar tidak error jika route belum dibuat
+const safeRoute = (name) => {
+    return route().has(name) ? route(name) : '#';
 };
 </script>
 
 <template>
-    <Head title="Keuangan & Arus Kas" />
+    <Head title="Transaksi Keuangan" />
 
     <AppLayout>
-        <div class="max-w-7xl mx-auto space-y-8 pb-20">
+        <div class="px-4 md:px-6 space-y-6">
             
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-                
-                <div class="lg:col-span-1 space-y-5">
-                    
-                    <div class="relative h-56 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-slate-800 via-slate-900 to-black text-white shadow-2xl transition-transform duration-500 hover:scale-[1.02] group ring-1 ring-white/10">
-                        
-                        <div class="absolute top-0 right-0 -mr-16 -mt-16 h-48 w-48 rounded-full bg-emerald-500/20 blur-3xl"></div>
-                        <div class="absolute bottom-0 left-0 -ml-16 -mb-16 h-48 w-48 rounded-full bg-blue-600/20 blur-3xl"></div>
-                        <div class="absolute inset-0 opacity-30 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
-
-                        <div class="relative z-10 flex h-full flex-col justify-between p-6">
-                            
-                            <div class="flex justify-between items-start">
-                                <div class="h-9 w-11 rounded-md bg-gradient-to-tr from-yellow-200 to-yellow-500 shadow-inner border border-yellow-600/30 relative overflow-hidden">
-                                    <div class="absolute top-1/2 w-full h-[1px] bg-yellow-700/40"></div>
-                                    <div class="absolute left-1/2 h-full w-[1px] bg-yellow-700/40"></div>
-                                    <div class="absolute top-1/2 left-1/2 w-4 h-3 -translate-x-1/2 -translate-y-1/2 border border-yellow-700/40 rounded-[2px]"></div>
-                                </div>
-                                
-                                <div class="text-right relative z-20">
-                                    <p class="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Unit Organization</p>
-                                    <p class="text-sm font-bold text-white tracking-wide truncate max-w-[180px] drop-shadow-md uppercase" 
-                                       :title="$page.props.auth.user.organization_unit?.name || 'PIMPINAN CABANG'">
-                                        {{ $page.props.auth.user.organization_unit?.name || 'PIMPINAN CABANG' }}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="mt-1">
-                                <p class="mb-1 text-[10px] text-slate-400 font-mono tracking-widest uppercase">Total Balance</p>
-                                <h2 class="text-3xl font-mono font-bold tracking-tight text-white drop-shadow-lg tabular-nums">
-                                    {{ formatCurrency(balances.total) }}
-                                </h2>
-                            </div>
-
-                            <div class="flex justify-between items-end">
-                                <div>
-                                    <p class="text-[8px] text-slate-500 uppercase mb-0.5">Card Holder</p>
-                                    <p class="text-xs font-medium tracking-widest uppercase text-slate-200 truncate max-w-[140px]">
-                                        {{ $page.props.auth.user.name }}
-                                    </p>
-                                </div>
-                                <div class="flex items-center gap-4">
-                                    <div class="flex flex-col items-end">
-                                        <p class="text-[7px] text-slate-500 uppercase">Valid Thru</p>
-                                        <p class="text-xs font-mono">12/30</p>
-                                    </div>
-                                    <div class="flex -space-x-2 opacity-80">
-                                        <div class="h-6 w-6 rounded-full bg-red-500/90 mix-blend-screen"></div>
-                                        <div class="h-6 w-6 rounded-full bg-orange-500/90 mix-blend-screen"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <Link :href="route('transactions.create')" class="block">
-                        <button class="w-full group flex items-center justify-between bg-white border border-slate-200 p-3.5 rounded-xl shadow-sm hover:border-emerald-500 hover:shadow-emerald-100 transition-all duration-300">
-                            <div class="flex items-center gap-3">
-                                <div class="h-10 w-10 rounded-full bg-slate-900 text-white flex items-center justify-center group-hover:bg-emerald-600 transition-colors shadow-md">
-                                    <i class="pi pi-plus text-sm"></i>
-                                </div>
-                                <div class="text-left">
-                                    <p class="text-sm font-bold text-slate-800">Catat Transaksi</p>
-                                    <p class="text-[11px] text-slate-500">Input pemasukan atau pengeluaran baru</p>
-                                </div>
-                            </div>
-                            <div class="h-8 w-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-emerald-50 text-slate-400 group-hover:text-emerald-600 transition-colors">
-                                <i class="pi pi-arrow-right text-xs"></i>
-                            </div>
-                        </button>
-                    </Link>
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-black text-gray-800 tracking-tight">Manajemen Keuangan</h1>
+                    <p class="text-gray-500 text-sm">Pusat kontrol operasional keuangan unit.</p>
                 </div>
+                <Link :href="route('finance.transactions.create')" 
+                      class="bg-emerald-600 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:shadow-none transition-all font-bold text-sm flex items-center gap-2">
+                    <i class="pi pi-plus-circle"></i>
+                    Catat Transaksi
+                </Link>
+            </div>
 
-                <div class="lg:col-span-2 flex flex-col h-full">
-                   <div class="flex items-center justify-between mb-4 px-1 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">Dompet & Rekening</h3>
-                        
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md border border-slate-200 cursor-help" v-tooltip.bottom="'Total akun kas & bank aktif'">
-                                {{ balances.details.length }} Akun
-                            </span>
+            <FinanceNavigation />
 
-                            <Link :href="route('finance-accounts.index')"> 
-                                <button class="h-7 w-7 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:bg-slate-50 hover:text-slate-700 hover:border-slate-300 transition-all shadow-sm" v-tooltip.left="'Kelola Akun (Edit/Hapus)'">
-                                    <i class="pi pi-cog text-xs"></i>
-                                </button>
-                            </Link>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-fr h-full">
-                        
-                        <div v-for="(acc, index) in balances.details" :key="index" 
-                             class="group relative bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-300 hover:shadow-md transition-all duration-300 cursor-default flex flex-col justify-between min-h-[140px]">
-                            
-                            <div class="flex items-start gap-3">
-                                <div class="h-10 w-10 shrink-0 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500 border border-slate-100 group-hover:bg-white group-hover:text-emerald-600 group-hover:border-emerald-100 transition-colors shadow-sm">
-                                    <i :class="['pi text-lg', acc.name.toLowerCase().includes('bank') ? 'pi-building-columns' : 'pi-wallet']"></i>
-                                </div>
-                                <div class="overflow-hidden w-full">
-                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
-                                        {{ acc.name.toLowerCase().includes('bank') ? 'Bank Account' : 'Cash Account' }}
-                                    </p>
-                                    <p class="text-sm font-bold text-slate-800 truncate leading-tight" :title="acc.name">
-                                        {{ acc.name }}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="flex items-end justify-between border-t border-slate-50 pt-3 mt-3">
-                                <div>
-                                    <p class="text-[10px] text-slate-400 mb-0.5 font-medium">Saldo Tersedia</p>
-                                    <p class="text-lg font-mono font-bold text-slate-700 group-hover:text-emerald-700 transition-colors tabular-nums tracking-tight">
-                                        {{ formatCurrency(acc.balance) }}
-                                    </p>
-                                </div>
-                                <Link :href="route('finance-accounts.show', acc.id)">
-                                    <button class="h-8 w-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 opacity-0 group-hover:opacity-100 transition-all hover:bg-emerald-100 hover:text-emerald-600 shrink-0" v-tooltip.top="'Lihat Mutasi & Detail'">
-                                        <i class="pi pi-list text-xs"></i>
-                                    </button>
-                                </Link>
-                            </div>
-                        </div>
-
-                       <Link :href="route('finance-accounts.index')" 
-                             class="flex flex-col items-center justify-center p-5 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50/30 transition-all cursor-pointer min-h-[140px] gap-3 group">
-                            
-                            <div class="h-12 w-12 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
-                                <i class="pi pi-sliders-h text-xl group-hover:scale-110 transition-transform"></i>
-                            </div>
-                            
-                            <span class="text-xs font-bold uppercase tracking-wide text-center">Kelola / Tambah Akun</span>
-                        </Link>
-
+            <div v-if="balances" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="col-span-1 md:col-span-1 bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group">
+                    <div class="absolute right-0 top-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                    <p class="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-1">Total Kas & Bank</p>
+                    <h2 class="text-3xl font-black tracking-tight">{{ formatCurrency(balances?.total || 0) }}</h2>
+                    <div class="mt-4 flex items-center gap-2 text-xs bg-white/20 w-fit px-2 py-1 rounded-lg backdrop-blur-sm">
+                        <i class="pi pi-shield"></i>
+                        <span>Posisi Keuangan Aman</span>
                     </div>
                 </div>
 
+                <div class="col-span-1 md:col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                        <i class="pi pi-wallet text-gray-400"></i> Rincian Dompet
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div v-for="acc in balances?.details" :key="acc.code" 
+                             class="p-3 rounded-xl bg-gray-50 border border-gray-100 hover:border-emerald-200 transition-colors">
+                            <p class="text-xs text-gray-500 truncate">{{ acc.name }}</p>
+                            <p class="font-bold text-gray-800">{{ formatCurrency(acc.balance) }}</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="sticky top-4 z-40 bg-white/80 backdrop-blur-xl p-3 rounded-2xl border border-white/20 shadow-lg ring-1 ring-black/5 flex flex-col md:flex-row justify-between items-center gap-4 transition-all">
@@ -306,32 +222,50 @@ const handleDelete = (event, id) => {
                         </button>
                     </div>
 
-                    <Select v-if="units.length" v-model="selectedUnit" :options="units" optionLabel="name" optionValue="id" 
-                            placeholder="Filter Unit" showClear class="w-48 !rounded-xl !text-sm" />
+                    <Select v-if="units && units.length" 
+                            v-model="selectedUnit" 
+                            :options="units" 
+                            optionLabel="name" 
+                            optionValue="id" 
+                            placeholder="Filter Unit" 
+                            showClear 
+                            class="w-48 !rounded-xl !text-sm" />
                 </div>
 
                 <div class="w-full md:w-auto relative">
                     <IconField iconPosition="left">
                         <InputIcon class="pi pi-search text-slate-400" />
-                        <InputText v-model="search" @input="handleSearch" placeholder="Cari transaksi..." 
+                        <InputText v-model="filters['global'].value" 
+                                   placeholder="Cari transaksi..." 
                                    class="w-full md:w-64 !rounded-xl !bg-slate-50 !border-transparent focus:!bg-white focus:!border-slate-200 focus:!ring-0 transition-all" />
                     </IconField>
                 </div>
             </div>
 
             <div class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-                <DataTable :value="transactions.data" stripedRows class="w-full">
+                
+                <DataTable 
+                    :value="transactions" 
+                    :paginator="true" 
+                    :rows="10"
+                    :rowsPerPageOptions="[10, 20, 50]"
+                    v-model:filters="filters"
+                    :globalFilterFields="['description', 'amount', 'category_coa.name', 'cash_coa.name', 'type']"
+                    stripedRows 
+                    class="w-full"
+                    removableSort
+                >
                     <template #empty>
                         <div class="flex flex-col items-center justify-center py-20 text-center">
                             <div class="h-20 w-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
                                 <i class="pi pi-inbox text-3xl text-slate-300"></i>
                             </div>
-                            <h3 class="text-lg font-bold text-slate-700">Belum ada data</h3>
-                            <p class="text-sm text-slate-400">Transaksi yang Anda catat akan muncul di sini.</p>
+                            <h3 class="text-lg font-bold text-slate-700">Data tidak ditemukan</h3>
+                            <p class="text-sm text-slate-400">Coba ubah filter atau kata kunci pencarian Anda.</p>
                         </div>
                     </template>
 
-                    <Column header="Waktu" style="width: 15%">
+                    <Column field="date" header="Waktu" sortable style="width: 15%">
                         <template #body="{ data }">
                             <div class="flex flex-col">
                                 <span class="font-bold text-slate-700 text-sm">{{ formatDate(data.date) }}</span>
@@ -340,7 +274,7 @@ const handleDelete = (event, id) => {
                         </template>
                     </Column>
 
-                    <Column header="Keterangan & Alur Dana" style="width: 40%">
+                    <Column field="description" header="Keterangan & Alur Dana" sortable style="width: 40%">
                         <template #body="{ data }">
                             <div class="flex items-start gap-3 py-2">
                                 <div :class="[
@@ -381,7 +315,7 @@ const handleDelete = (event, id) => {
                         </template>
                     </Column>
 
-                    <Column v-if="units.length" header="Unit" style="width: 15%">
+                    <Column v-if="units && units.length" field="organization_unit.name" header="Unit" sortable style="width: 15%">
                         <template #body="{ data }">
                             <div class="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg">
                                 <i class="pi pi-building text-[10px] text-slate-400"></i>
@@ -390,7 +324,7 @@ const handleDelete = (event, id) => {
                         </template>
                     </Column>
 
-                    <Column header="Nominal" style="width: 20%; text-align: right">
+                    <Column field="amount" header="Nominal" sortable style="width: 20%; text-align: right">
                         <template #body="{ data }">
                             <div :class="[
                                 'font-mono font-bold text-base tracking-tight',
@@ -419,9 +353,6 @@ const handleDelete = (event, id) => {
                         </template>
                     </Column>
                 </DataTable>
-
-                <div v-if="transactions.links" class="p-4 border-t border-slate-100 bg-slate-50 flex justify-center">
-                    </div>
             </div>
 
         </div>
@@ -430,12 +361,23 @@ const handleDelete = (event, id) => {
 </template>
 
 <style scoped>
-/* Custom Scrollbar Hide */
+/* Hapus scrollbar di filter tipe agar rapi */
 .scrollbar-hide::-webkit-scrollbar {
     display: none;
 }
 .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+}
+
+/* Custom Paginator PrimeVue agar menyatu dengan Tema */
+:deep(.p-paginator) {
+    background: transparent;
+    border-top: 1px solid #f1f5f9;
+    padding: 1rem;
+    font-size: 0.875rem;
+}
+:deep(.p-paginator-current) {
+    color: #94a3b8;
 }
 </style>

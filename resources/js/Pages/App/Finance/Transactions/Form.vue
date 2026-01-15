@@ -70,7 +70,7 @@ const onFileSelect = (event) => {
 };
 
 const submit = () => {
-    form.post(route('transactions.store'), {
+    form.post(route('finance.transactions.store'), {
         forceFormData: true,
         preserveScroll: true
     });
@@ -84,7 +84,7 @@ const submit = () => {
         <div class="max-w-4xl mx-auto space-y-6 pb-20">
             
             <div class="flex items-center gap-3 mb-4">
-                <Link :href="route('transactions.index')">
+                <Link :href="route('finance.transactions.index')">
                     <Button icon="pi pi-arrow-left" text rounded severity="secondary" />
                 </Link>
                 <div>

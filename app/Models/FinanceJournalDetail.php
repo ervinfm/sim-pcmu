@@ -10,7 +10,13 @@ class FinanceJournalDetail extends Model
     use HasFactory;
 
     protected $table = 'finance_journal_details';
-    protected $guarded = ['id'];
+    
+    protected $fillable = [
+        'journal_id',
+        'coa_id',
+        'debit',
+        'credit',
+    ];
 
     protected $casts = [
         'debit' => 'decimal:2',

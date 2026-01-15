@@ -10,7 +10,16 @@ class FinanceJournal extends Model
     use HasFactory;
 
     protected $table = 'finance_journals';
-    protected $guarded = ['id'];
+    
+    protected $fillable = [
+        'organization_unit_id',
+        'user_id',
+        'journal_number',   // JU/2025/01/001
+        'transaction_date',
+        'reference',        // No Invoice / Keterangan Singkat
+        'description',      // Keterangan Lengkap
+        'total_amount',     // Checksum (Total Debit)
+    ];
 
     protected $casts = [
         'transaction_date' => 'date',
@@ -27,13 +36,13 @@ class FinanceJournal extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Relasi ke Rincian Debit/Kredit
+    // Relasi 1-to-Many ke Rincian Debit/Kredit
     public function details()
     {
         return $this->hasMany(FinanceJournalDetail::class, 'journal_id');
     }
 
-    // Relasi ke Transaksi UI (Jika berasal dari input user)
+    // Relasi balik ke Transaksi UI (Optional, jika jurnal ini hasil generate otomatis)
     public function transaction()
     {
         return $this->hasOne(FinanceTransaction::class, 'journal_id');

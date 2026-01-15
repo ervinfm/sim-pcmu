@@ -14,7 +14,7 @@ const isAumAdmin   = computed(() => userRole.value === 'admin_aum');
 const canManageMembers = computed(() => ['super_admin', 'admin_prm'].includes(userRole.value));
 const canManageResources = computed(() => ['super_admin', 'admin_prm', 'admin_aum'].includes(userRole.value));
 
-// --- STRUKTUR MENU ENTERPRISE ---
+// --- STRUKTUR MENU ENTERPRISE (Updated Routes & Active Logic) ---
 const menuItems = computed(() => [
     {
         header: 'OVERVIEW',
@@ -24,50 +24,63 @@ const menuItems = computed(() => [
         ]
     },
     {
-        header: 'SUMBER DAYA ORGANISASI', // Core Resources
+        header: 'SUMBER DAYA ORGANISASI', 
         show: canManageResources.value, 
         items: [
-            // Database Anggota (Member Base)
-            { label: 'Database Anggota', route: 'members.index', icon: 'pi pi-users', show: canManageMembers.value },
+            { 
+                label: 'Database Anggota', 
+                route: 'members.index', 
+                icon: 'pi pi-users', 
+                show: canManageMembers.value,
+                activePaths: ['members.*']
+            },
             
-            // Keuangan (Treasury)
-            { label: 'Manajemen Keuangan', route: 'transactions.index', icon: 'pi pi-wallet', show: true },
+            // [UPDATE] Route Finance + Active Paths
+            // Menu ini akan menyala jika user berada di Transaksi, Akun, Saldo Awal, atau Tutup Buku
+            { 
+                label: 'Manajemen Keuangan', 
+                route: 'finance.transactions.index', 
+                icon: 'pi pi-wallet', 
+                show: true,
+                activePaths: ['finance.*']
+            },
             
-            // Aset (Fixed Assets)
-            { label: 'Manajemen Aset', route: 'assets.index', icon: 'pi pi-box', show: true },
+            { label: 'Manajemen Aset', route: 'assets.index', icon: 'pi pi-box', show: true, activePaths: ['assets.*'] },
         ]
     },
     {
-        header: 'TATA KELOLA ADMINISTRASI', // Office Automation (New Section)
+        header: 'TATA KELOLA ADMINISTRASI',
         show: canManageResources.value,
         items: [
-            // [BARU] E-Arsip & Persuratan
-            // Mencakup: Surat Masuk, Surat Keluar, Bank SK, Disposisi
             { label: 'E-Arsip & Persuratan', route: 'archives.index', icon: 'pi pi-envelope', show: true },
         ]
     },
     {
-        header: 'ANALISIS DATA & LAPORAN', // Strategic Insights
+        header: 'ANALISIS DATA & LAPORAN',
         show: canManageResources.value, 
         items: [
-            // [BARU] Peta Dakwah (GIS)
-            // Mencakup: Peta Sebaran AUM, Zonasi Ranting
             { label: 'Peta Sebaran Dakwah', route: 'maps.index', icon: 'pi pi-map', show: true },
             
-            // Pusat Laporan (Reporting Hub)
-            { label: 'Pusat Laporan Terpadu', route: 'reports.index', icon: 'pi pi-chart-pie', show: true },
+            // [UPDATE] Route Reports
+            { 
+                label: 'Pusat Laporan Terpadu', 
+                route: 'reports.index', 
+                icon: 'pi pi-chart-pie', 
+                show: true,
+                activePaths: ['reports.*'] 
+            },
         ]
     },
     {
-        header: 'SYSTEM & SECURITY', // System Core
+        header: 'SYSTEM & SECURITY',
         show: isSuperAdmin.value, 
         items: [
-            { label: 'Pengguna & Hak Akses', route: 'users.index', icon: 'pi pi-shield', show: true },
-            { label: 'Struktur Organisasi', route: 'organizations.index', icon: 'pi pi-sitemap', show: true },
+            { label: 'Pengguna & Hak Akses', route: 'users.index', icon: 'pi pi-shield', show: true, activePaths: ['users.*'] },
+            { label: 'Struktur Organisasi', route: 'organizations.index', icon: 'pi pi-sitemap', show: true, activePaths: ['organizations.*'] },
         ]
     },
     {
-        header: 'PUBLIKASI & CMS', // Web Management
+        header: 'PUBLIKASI & CMS',
         show: isSuperAdmin.value, 
         items: [
             { label: 'Portal Berita', route: 'posts.index', icon: 'pi pi-megaphone', show: true },
@@ -76,10 +89,19 @@ const menuItems = computed(() => [
     }
 ]);
 
-const isActive = (routeName) => {
-    // Menangani route placeholder (null/undefined) agar tidak error
-    if (!routeName) return false;
-    return route().current(routeName + '*');
+// --- LOGIKA ACTIVE STATE (SMART) ---
+const isActive = (item) => {
+    // 1. Cek keamanan: Jika route kosong/placeholder
+    if (!item.route) return false;
+
+    // 2. Cek Custom Active Paths (Array)
+    // Jika item punya definisi activePaths, cek apakah route saat ini cocok dengan salah satunya
+    if (item.activePaths) {
+        return item.activePaths.some(pattern => route().current(pattern));
+    }
+
+    // 3. Default Check (Route Name + Wildcard)
+    return route().current(item.route + '*');
 };
 </script>
 
@@ -88,19 +110,15 @@ const isActive = (routeName) => {
         
         <div class="h-16 shrink-0 flex items-center justify-center px-6 relative mb-2 border-b border-dashed border-emerald-100/50">
             <Link :href="route('dashboard')" class="flex items-center gap-3.5 group relative z-10 p-2 rounded-xl transition-colors duration-300 hover:bg-white/40">
-                
                 <div class="absolute inset-0 bg-gradient-to-tr from-emerald-400/30 to-teal-400/0 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                
                 <div class="relative">
                     <div class="absolute inset-0 bg-white rounded-full blur-sm opacity-60"></div>
                     <img src="/images/logo.png" class="h-11 w-auto relative z-10 drop-shadow-lg" alt="Logo Muhammadiyah">
                 </div>
-
                 <div class="flex flex-col">
                     <span class="font-black text-xl leading-none tracking-tight text-emerald-900 group-hover:text-emerald-700 transition-colors duration-300">
                         SIM PCM
                     </span>
-                    
                     <div class="flex items-center gap-1 mt-1">
                         <span class="w-8 h-[1px] bg-emerald-300"></span>
                         <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest group-hover:text-emerald-600 whitespace-nowrap transition-colors">
@@ -112,7 +130,6 @@ const isActive = (routeName) => {
         </div>
 
         <div class="flex-1 overflow-y-auto py-4 px-4 space-y-6 custom-scrollbar">
-            
             <template v-for="(group, index) in menuItems" :key="index">
                 <div v-if="group.show !== false">
                     
@@ -126,15 +143,15 @@ const isActive = (routeName) => {
                             <Link v-if="item.show !== false"
                                   :href="item.route && route().has(item.route) ? route(item.route) : '#'"
                                   class="flex items-center gap-3 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 relative overflow-hidden group"
-                                  :class="isActive(item.route) 
+                                  :class="isActive(item) 
                                     ? 'text-emerald-800 font-bold bg-emerald-50/50' 
                                     : 'text-gray-500 hover:text-emerald-600 hover:bg-gray-50'">
                                 
-                                <div v-if="isActive(item.route)" 
+                                <div v-if="isActive(item)" 
                                      class="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 bg-emerald-500 rounded-r-full shadow-lg shadow-emerald-200">
                                 </div>
 
-                                <i :class="[item.icon, isActive(item.route) ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-500']"
+                                <i :class="[item.icon, isActive(item) ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-500']"
                                    class="relative z-10 text-lg transition-transform duration-300 group-hover:-translate-y-0.5"></i>
                                 
                                 <span class="relative z-10">{{ item.label }}</span>
@@ -151,7 +168,6 @@ const isActive = (routeName) => {
 </template>
 
 <style scoped>
-/* Custom Scrollbar Styling (Opsional, agar lebih cantik) */
 .custom-scrollbar::-webkit-scrollbar {
     width: 5px;
 }
@@ -159,10 +175,10 @@ const isActive = (routeName) => {
     background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgba(167, 243, 208, 0.5); /* Emerald-200 with opacity */
+    background-color: rgba(167, 243, 208, 0.5);
     border-radius: 20px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(52, 211, 153, 0.8); /* Emerald-400 */
+    background-color: rgba(52, 211, 153, 0.8);
 }
 </style>

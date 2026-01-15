@@ -51,7 +51,7 @@ class TransactionController extends Controller
         $balances = $this->calculateCashBalances($user);
 
         return Inertia::render('App/Finance/Transactions/Index', [
-            'transactions' => $query->paginate(10)->withQueryString(),
+            'transactions' => $query->limit(2000)->get(),
             'balances' => $balances, // Data untuk Kartu Saldo (Kas Tunai, Bank, Total)
             'filters' => $request->only(['search', 'type', 'unit_id']),
             'units' => $user->role === 'super_admin' ? OrganizationUnit::select('id', 'name')->get() : []

@@ -10,7 +10,19 @@ class FinanceBudget extends Model
     use HasFactory;
 
     protected $table = 'finance_budgets';
-    protected $guarded = ['id'];
+    
+    protected $fillable = [
+        'organization_unit_id',
+        'coa_id',
+        'fiscal_year', // Thn Anggaran (2025, 2026)
+        'amount',
+        'description',
+    ];
+
+    protected $casts = [
+        'amount' => 'decimal:2',
+        'fiscal_year' => 'integer',
+    ];
 
     public function organizationUnit()
     {
