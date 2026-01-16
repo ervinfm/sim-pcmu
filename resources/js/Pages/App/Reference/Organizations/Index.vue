@@ -68,7 +68,7 @@ const getMenuItems = () => {
             icon: 'pi pi-users', 
             class: 'text-emerald-600 font-medium',
             // Arahkan ke halaman baru
-            command: () => router.visit(route('organizations.structure.edit', selectedItem.value.id)) 
+            command: () => router.visit(route('organizations.structure', selectedItem.value.id)) 
         }
     ];
 
@@ -78,7 +78,7 @@ const getMenuItems = () => {
             label: 'Kelola Wilayah', 
             icon: 'pi pi-map', 
             class: 'text-blue-600 font-medium',
-            command: () => router.visit(route('organizations.territory.edit', selectedItem.value.id)) 
+            command: () => router.visit(route('organizations.territory', selectedItem.value.id)) 
         });
     }
 

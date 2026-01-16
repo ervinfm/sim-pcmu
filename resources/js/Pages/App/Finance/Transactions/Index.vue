@@ -1,383 +1,342 @@
 <script setup>
-import { ref, watch, computed } from 'vue';
-import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { ref, computed, onMounted } from 'vue';
+import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { FilterMatchMode } from '@primevue/core/api';
 import FinanceNavigation from '@/Components/Finance/FinanceNavigation.vue';
 
-// PrimeVue v4 Components
+// PrimeVue Components
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
+import Select from 'primevue/select'; // PrimeVue v4 uses Select
 import Tag from 'primevue/tag';
-import SelectButton from 'primevue/selectbutton';
-import Select from 'primevue/select';
 import ConfirmPopup from 'primevue/confirmpopup';
-import Badge from 'primevue/badge';
 import { useConfirm } from "primevue/useconfirm";
+import { useToast } from "primevue/usetoast";
+import { FilterMatchMode } from '@primevue/core/api'; // Penting untuk Client Side Filter
 
-// --- PROPS ---
+// Props dari Controller
 const props = defineProps({
-    transactions: Array,
-    units: {
-        type: Array,
-        default: () => []
-    },
+    transactions: Array,  // Sekarang Array, bukan Object Paginator
     balances: Object,
-    errors: Object,
-    // [BARU] Prop untuk cek status setup
-    hasOpeningBalance: { 
-        type: Boolean, 
-        default: true // Default true agar tidak merah jika backend belum kirim
-    } 
+    units: Array,
 });
 
-// --- NAVIGATION TABS CONFIG ---
-// Menu Tab untuk Navigasi Antar Sub-Modul Finance
-const navItems = computed(() => [
-    { 
-        label: 'Transaksi', 
-        route: 'finance.transactions.index', 
-        active: true, // Halaman ini
-        icon: 'pi pi-list' 
-    },
-    { 
-        label: 'Laporan', 
-        route: 'finance.reports.index', 
-        active: false,
-        icon: 'pi pi-chart-bar' 
-    },
-    { 
-        label: 'Saldo Awal', 
-        route: 'finance.opening-balances.index', 
-        active: false,
-        icon: 'pi pi-wallet',
-        // Tampilkan badge warning jika belum setup
-        showWarning: !props.hasOpeningBalance 
-    },
-    { 
-        label: 'Tutup Buku', 
-        route: 'finance.closing-periods.index', 
-        active: false,
-        icon: 'pi pi-lock' 
-    },
-    { 
-        label: 'Master Akun', 
-        route: 'finance.accounts.index', 
-        active: false,
-        icon: 'pi pi-book' 
-    }
-]);
+const confirm = useConfirm();
+const toast = useToast();
 
-// --- STATE FILTER CLIENT-SIDE ---
+// --- CLIENT SIDE FILTER CONFIG ---
 const filters = ref({
     global: { value: null, matchMode: FilterMatchMode.CONTAINS },
     type: { value: null, matchMode: FilterMatchMode.EQUALS },
-    organization_unit_id: { value: null, matchMode: FilterMatchMode.EQUALS },
+    fund_type: { value: null, matchMode: FilterMatchMode.EQUALS },
+    'organizationUnit.id': { value: null, matchMode: FilterMatchMode.EQUALS }, // Filter Nested
 });
 
-// State untuk UI Filter (Tombol & Dropdown)
-const selectedType = ref(null);
-const selectedUnit = ref(null);
-
-const typeOptions = [
-    { label: 'Semua', value: null },
+// Opsi Dropdown
+const transactionTypes = [
+    { label: 'Semua Tipe', value: null },
     { label: 'Pemasukan', value: 'INCOME' },
     { label: 'Pengeluaran', value: 'EXPENSE' },
-    { label: 'Transfer', value: 'TRANSFER' },
+    { label: 'Transfer', value: 'TRANSFER' }
 ];
 
-// --- WATCHERS ---
-watch(selectedType, (newVal) => {
-    filters.value.type.value = newVal;
-});
-watch(selectedUnit, (newVal) => {
-    filters.value.organization_unit_id.value = newVal;
-});
+const fundTypes = [
+    { label: 'Semua Dana', value: null },
+    { label: 'Dana Bebas', value: 'UNRESTRICTED' },
+    { label: 'Dana Terikat', value: 'RESTRICTED' },
+    { label: 'Dana Abadi', value: 'ENDOWMENT' }
+];
 
-// --- HELPER FORMATTING ---
+// Helper Formatter
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 };
 
 const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+    const options = { day: 'numeric', month: 'short', year: 'numeric' };
+    return new Date(dateString).toLocaleDateString('id-ID', options);
 };
 
-const formatTime = (dateString) => {
-    return new Date(dateString).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-};
-
-const getSeverity = (type) => {
-    switch (type) {
-        case 'INCOME': return 'success';
-        case 'EXPENSE': return 'danger';
-        case 'TRANSFER': return 'info';
-        default: return 'secondary';
-    }
-};
-
-const getLabel = (type) => {
-    switch (type) {
-        case 'INCOME': return 'Pemasukan';
-        case 'EXPENSE': return 'Pengeluaran';
-        case 'TRANSFER': return 'Transfer';
-        default: return type;
-    }
-};
-
-const getIcon = (type) => {
-    switch (type) {
-        case 'INCOME': return 'pi pi-arrow-down-left';
-        case 'EXPENSE': return 'pi pi-arrow-up-right';
-        case 'TRANSFER': return 'pi pi-arrow-right-arrow-left';
-        default: return 'pi pi-circle';
-    }
-};
-
-// --- DELETE LOGIC ---
-const confirm = useConfirm();
+// --- ACTIONS ---
 const handleDelete = (event, id) => {
     confirm.require({
         target: event.currentTarget,
-        message: 'Hapus transaksi ini? Data jurnal juga akan terhapus.',
+        message: 'Yakin ingin membatalkan transaksi ini? Jurnal akuntansi akan dihapus.',
         icon: 'pi pi-exclamation-triangle',
-        rejectProps: { label: 'Batal', severity: 'secondary', outlined: true },
-        acceptProps: { label: 'Hapus', severity: 'danger' },
+        acceptClass: 'p-button-danger',
         accept: () => {
-            router.delete(route('transactions.destroy', id), {
+            router.delete(route('finance.transactions.destroy', id), {
                 preserveScroll: true,
+                onSuccess: () => toast.add({ severity: 'success', summary: 'Berhasil', detail: 'Transaksi dihapus', life: 3000 }),
+                onError: () => toast.add({ severity: 'error', summary: 'Gagal', detail: 'Gagal menghapus (Cek Tutup Buku)', life: 3000 })
             });
         }
     });
 };
+// Logika Status Saldo
+const balanceStatus = computed(() => {
+    const total = props.balances?.total || 0; // Ambil nilai total
 
-// Helper route check agar tidak error jika route belum dibuat
-const safeRoute = (name) => {
-    return route().has(name) ? route(name) : '#';
-};
+    if (total < 0) {
+        return {
+            bg: 'bg-gradient-to-br from-red-500 to-rose-600', // Merah Solid
+            text: 'text-white',
+            subText: 'text-red-100',
+            icon: 'pi-exclamation-triangle', // Icon Peringatan
+            iconColor: 'text-rose-900',
+            badgeLabel: 'DEFISIT',
+            badgeClass: 'bg-red-800/30 text-white border-red-400/30',
+            message: 'Segera lakukan penyeimbangan kas!'
+        };
+    } else if (total < 10000000) {
+        return {
+            bg: 'bg-gradient-to-br from-amber-400 to-orange-500', // Kuning/Oranye
+            text: 'text-white',
+            subText: 'text-amber-100',
+            icon: 'pi-exclamation-circle', // Icon Waspada
+            iconColor: 'text-amber-800',
+            badgeLabel: 'MENIPIS',
+            badgeClass: 'bg-amber-800/30 text-white border-amber-400/30',
+            message: 'Perhatikan pengeluaran operasional.'
+        };
+    } else {
+        return {
+            bg: 'bg-gradient-to-br from-emerald-500 to-teal-600', // Hijau Emerald
+            text: 'text-white',
+            subText: 'text-emerald-100',
+            icon: 'pi-wallet', // Icon Dompet
+            iconColor: 'text-emerald-900',
+            badgeLabel: 'AMAN',
+            badgeClass: 'bg-emerald-800/30 text-white border-emerald-400/30',
+            message: 'Kondisi kas terpantau stabil.'
+        };
+    }
+});
 </script>
 
 <template>
     <Head title="Transaksi Keuangan" />
 
     <AppLayout>
-        <div class="px-4 md:px-6 space-y-6">
-            
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 class="text-2xl font-black text-gray-800 tracking-tight">Manajemen Keuangan</h1>
-                    <p class="text-gray-500 text-sm">Pusat kontrol operasional keuangan unit.</p>
-                </div>
-                <Link :href="route('finance.transactions.create')" 
-                      class="bg-emerald-600 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 hover:shadow-none transition-all font-bold text-sm flex items-center gap-2">
-                    <i class="pi pi-plus-circle"></i>
-                    Catat Transaksi
-                </Link>
-            </div>
+        <template #header>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Keuangan</h2>
+        </template>
 
-            <FinanceNavigation />
-
-            <div v-if="balances" class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="col-span-1 md:col-span-1 bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group">
-                    <div class="absolute right-0 top-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -mr-10 -mt-10"></div>
-                    <p class="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-1">Total Kas & Bank</p>
-                    <h2 class="text-3xl font-black tracking-tight">{{ formatCurrency(balances?.total || 0) }}</h2>
-                    <div class="mt-4 flex items-center gap-2 text-xs bg-white/20 w-fit px-2 py-1 rounded-lg backdrop-blur-sm">
-                        <i class="pi pi-shield"></i>
-                        <span>Posisi Keuangan Aman</span>
-                    </div>
-                </div>
-
-                <div class="col-span-1 md:col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-                        <i class="pi pi-wallet text-gray-400"></i> Rincian Dompet
-                    </h4>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <div v-for="acc in balances?.details" :key="acc.code" 
-                             class="p-3 rounded-xl bg-gray-50 border border-gray-100 hover:border-emerald-200 transition-colors">
-                            <p class="text-xs text-gray-500 truncate">{{ acc.name }}</p>
-                            <p class="font-bold text-gray-800">{{ formatCurrency(acc.balance) }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="sticky top-4 z-40 bg-white/80 backdrop-blur-xl p-3 rounded-2xl border border-white/20 shadow-lg ring-1 ring-black/5 flex flex-col md:flex-row justify-between items-center gap-4 transition-all">
+        <div class="py-2">
+            <div class="max-w-7xl mx-auto sm:px-2 lg:px-4 space-y-6">
                 
-                <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
-                    <div class="flex bg-slate-100 p-1 rounded-xl">
-                        <button v-for="opt in typeOptions" :key="opt.label"
-                                @click="selectedType = opt.value"
-                                :class="[
-                                    'px-4 py-2 text-xs font-bold rounded-lg transition-all',
-                                    selectedType === opt.value 
-                                        ? 'bg-white text-slate-800 shadow-sm' 
-                                        : 'text-slate-500 hover:text-slate-700'
-                                ]">
-                            {{ opt.label }}
-                        </button>
-                    </div>
+                <FinanceNavigation />
 
-                    <Select v-if="units && units.length" 
-                            v-model="selectedUnit" 
-                            :options="units" 
-                            optionLabel="name" 
-                            optionValue="id" 
-                            placeholder="Filter Unit" 
-                            showClear 
-                            class="w-48 !rounded-xl !text-sm" />
-                </div>
+               <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="rounded-2xl p-6 shadow-lg relative overflow-hidden transition-all duration-300 hover:shadow-xl group border border-white/20"
+                        :class="balanceStatus.bg">
+                        
+                        <i class="pi absolute -right-6 -bottom-8 opacity-20 transform -rotate-12 group-hover:scale-110 transition-transform duration-500"
+                        :class="[balanceStatus.icon, balanceStatus.iconColor]"
+                        style="font-size: 10rem;"></i>
 
-                <div class="w-full md:w-auto relative">
-                    <IconField iconPosition="left">
-                        <InputIcon class="pi pi-search text-slate-400" />
-                        <InputText v-model="filters['global'].value" 
-                                   placeholder="Cari transaksi..." 
-                                   class="w-full md:w-64 !rounded-xl !bg-slate-50 !border-transparent focus:!bg-white focus:!border-slate-200 focus:!ring-0 transition-all" />
-                    </IconField>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-                
-                <DataTable 
-                    :value="transactions" 
-                    :paginator="true" 
-                    :rows="10"
-                    :rowsPerPageOptions="[10, 20, 50]"
-                    v-model:filters="filters"
-                    :globalFilterFields="['description', 'amount', 'category_coa.name', 'cash_coa.name', 'type']"
-                    stripedRows 
-                    class="w-full"
-                    removableSort
-                >
-                    <template #empty>
-                        <div class="flex flex-col items-center justify-center py-20 text-center">
-                            <div class="h-20 w-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                                <i class="pi pi-inbox text-3xl text-slate-300"></i>
-                            </div>
-                            <h3 class="text-lg font-bold text-slate-700">Data tidak ditemukan</h3>
-                            <p class="text-sm text-slate-400">Coba ubah filter atau kata kunci pencarian Anda.</p>
-                        </div>
-                    </template>
-
-                    <Column field="date" header="Waktu" sortable style="width: 15%">
-                        <template #body="{ data }">
-                            <div class="flex flex-col">
-                                <span class="font-bold text-slate-700 text-sm">{{ formatDate(data.date) }}</span>
-                                <span class="text-xs text-slate-400">{{ data.created_at ? formatTime(data.created_at) : '-' }}</span>
-                            </div>
-                        </template>
-                    </Column>
-
-                    <Column field="description" header="Keterangan & Alur Dana" sortable style="width: 40%">
-                        <template #body="{ data }">
-                            <div class="flex items-start gap-3 py-2">
-                                <div :class="[
-                                    'h-10 w-10 rounded-xl flex items-center justify-center shrink-0 border',
-                                    data.type === 'INCOME' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 
-                                    data.type === 'EXPENSE' ? 'bg-rose-50 border-rose-100 text-rose-600' : 
-                                    'bg-blue-50 border-blue-100 text-blue-600'
-                                ]">
-                                    <i :class="getIcon(data.type)"></i>
+                        <div class="relative z-10 flex flex-col h-full justify-between">
+                            
+                            <div class="flex justify-between items-start mb-4">
+                                <p class="font-bold text-xs uppercase tracking-widest opacity-90" 
+                                :class="balanceStatus.subText">
+                                    Total Saldo Kas & Bank
+                                </p>
+                                
+                                <div class="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest backdrop-blur-md border shadow-sm flex items-center gap-1.5"
+                                    :class="balanceStatus.badgeClass">
+                                    <span class="relative flex h-2 w-2">
+                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-white"></span>
+                                    <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                    </span>
+                                    {{ balanceStatus.badgeLabel }}
                                 </div>
+                            </div>
 
-                                <div>
-                                    <p class="font-bold text-slate-800 text-sm line-clamp-1">{{ data.description }}</p>
+                            <div>
+                                <h3 class="text-3xl md:text-4xl font-black tracking-tight text-white drop-shadow-sm">
+                                    {{ formatCurrency(balances.total) }}
+                                </h3>
+                                
+                                <p class="text-xs mt-3 font-medium flex items-center gap-1.5 opacity-90" 
+                                :class="balanceStatus.subText">
+                                    <i class="pi pi-info-circle text-sm"></i>
+                                    {{ balanceStatus.message }}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-4 h-fit">
+
+                        <div v-for="acc in balances.details.slice(0, 2)" :key="acc.id" 
+                            class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all duration-300 group flex flex-col justify-between relative overflow-hidden h-[130px]">
+                            
+                            <div class="absolute top-0 left-0 w-full h-1 transition-colors duration-300"
+                                :class="acc.balance < 0 ? 'bg-red-400' : 'bg-gray-100 group-hover:bg-blue-400'"></div>
+
+                            <div class="flex justify-between items-start">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-colors"
+                                    :class="acc.balance < 0 ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'">
+                                    <i class="pi pi-wallet"></i>
+                                </div>
+                                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-50 text-gray-500 border border-gray-100">
+                                    {{ acc.code }}
+                                </span>
+                            </div>
+
+                            <div class="mt-2">
+                                <h5 class="text-lg font-bold tracking-tight" 
+                                    :class="acc.balance < 0 ? 'text-red-600' : 'text-gray-800'">
+                                    {{ formatCurrency(acc.balance) }}
+                                </h5>
+                                <p class="text-xs text-gray-500 font-medium truncate mt-0.5" :title="acc.name">
+                                    {{ acc.name }}
+                                </p>
+                            </div>
+                            
+                            <div class="absolute inset-0 bg-gradient-to-tr from-white via-transparent to-blue-50 opacity-0 group-hover:opacity-40 pointer-events-none transition-opacity"></div>
+                        </div>
+
+                        <Link :href="route('finance.accounts.index')" 
+                            class="flex flex-col items-center justify-center h-[130px] rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 text-gray-400 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-all duration-300 cursor-pointer group gap-2">
+                            
+                            <div class="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <i class="pi pi-arrow-right text-lg"></i>
+                            </div>
+                            
+                            <div class="text-center">
+                                <span class="block text-xs font-bold uppercase tracking-wider">Lihat Semua</span>
+                                <span class="text-[10px] opacity-70">{{ balances.details.length }} Akun Total</span>
+                            </div>
+                        </Link>
+
+                    </div>
+                </div>
+
+                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                    
+                    <DataTable :value="props.transactions" 
+                               v-model:filters="filters"
+                               paginator :rows="10" :rowsPerPageOptions="[10, 20, 50, 100]"
+                               stripedRows class="p-datatable-sm" 
+                               :globalFilterFields="['description', 'cash_coa.name', 'category_coa.name', 'amount']"
+                               sortMode="multiple" removableSort
+                               tableStyle="min-width: 50rem">
+                        
+                        <template #header>
+                            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                                <div class="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                                    <IconField iconPosition="left">
+                                        <InputIcon class="pi pi-search" />
+                                        <InputText v-model="filters['global'].value" placeholder="Cari data..." class="w-full md:w-64" />
+                                    </IconField>
                                     
-                                    <div class="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                                        <Tag :value="getLabel(data.type)" :severity="getSeverity(data.type)" class="!text-[9px] !px-1.5 !py-0.5" rounded />
-                                        
-                                        <div v-if="data.type === 'INCOME'" class="flex items-center gap-1">
-                                            <span>{{ data.category_coa?.name }}</span>
-                                            <i class="pi pi-arrow-right text-[10px] text-slate-300"></i>
-                                            <span class="font-bold text-emerald-700">{{ data.cash_coa?.name }}</span>
-                                        </div>
+                                    <Select v-if="units.length > 0" 
+                                            v-model="filters['organizationUnit.id'].value" 
+                                            :options="units" optionLabel="name" optionValue="id" 
+                                            placeholder="Semua Unit" class="w-full md:w-48" showClear />
+                                </div>
 
-                                        <div v-else-if="data.type === 'EXPENSE'" class="flex items-center gap-1">
-                                            <span class="font-bold text-rose-700">{{ data.cash_coa?.name }}</span>
-                                            <i class="pi pi-arrow-right text-[10px] text-slate-300"></i>
-                                            <span>{{ data.category_coa?.name }}</span>
-                                        </div>
+                                <div class="flex gap-2 w-full md:w-auto overflow-x-auto pb-1">
+                                    <Select v-model="filters['type'].value" 
+                                            :options="transactionTypes" optionLabel="label" optionValue="value" 
+                                            placeholder="Semua Tipe" class="w-full md:w-40" showClear />
+                                    
+                                    <Select v-model="filters['fund_type'].value" 
+                                            :options="fundTypes" optionLabel="label" optionValue="value" 
+                                            placeholder="Jenis Dana" class="w-full md:w-40" showClear />
 
-                                        <div v-else class="flex items-center gap-1">
-                                            <span class="font-bold text-slate-700">{{ data.cash_coa?.name }}</span>
-                                            <i class="pi pi-arrow-right text-[10px] text-slate-300"></i>
-                                            <span class="font-bold text-blue-700">{{ data.category_coa?.name }}</span>
-                                        </div>
-                                    </div>
+                                    <Link :href="route('finance.transactions.create')">
+                                        <Button label="Transaksi Baru" icon="pi pi-plus" severity="contrast" />
+                                    </Link>
                                 </div>
                             </div>
                         </template>
-                    </Column>
 
-                    <Column v-if="units && units.length" field="organization_unit.name" header="Unit" sortable style="width: 15%">
-                        <template #body="{ data }">
-                            <div class="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg">
-                                <i class="pi pi-building text-[10px] text-slate-400"></i>
-                                <span class="text-xs font-semibold text-slate-600">{{ data.organization_unit?.name }}</span>
-                            </div>
+                        <template #empty>
+                            <div class="text-center py-8 text-gray-500">Tidak ada data ditemukan.</div>
                         </template>
-                    </Column>
 
-                    <Column field="amount" header="Nominal" sortable style="width: 20%; text-align: right">
-                        <template #body="{ data }">
-                            <div :class="[
-                                'font-mono font-bold text-base tracking-tight',
-                                data.type === 'INCOME' ? 'text-emerald-600' : 
-                                data.type === 'EXPENSE' ? 'text-rose-600' : 'text-blue-600'
-                            ]">
-                                {{ data.type === 'EXPENSE' ? '-' : '+' }} {{ formatCurrency(data.amount) }}
-                            </div>
-                        </template>
-                    </Column>
+                        <Column field="date" header="Tanggal" sortable style="width: 12%">
+                            <template #body="{ data }">
+                                <span class="font-medium text-gray-700">{{ formatDate(data.date) }}</span>
+                            </template>
+                        </Column>
 
-                    <Column style="width: 10%; text-align: center">
-                        <template #body="{ data }">
-                            <div class="flex justify-center gap-1">
-                                <a v-if="data.proof_path" :href="'/storage/'+data.proof_path" target="_blank" 
-                                   class="h-8 w-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors"
-                                   v-tooltip.bottom="'Lihat Bukti'">
-                                    <i class="pi pi-image"></i>
-                                </a>
-                                <button class="h-8 w-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                                        @click="handleDelete($event, data.id)"
-                                        v-tooltip.bottom="'Batalkan'">
-                                    <i class="pi pi-trash"></i>
-                                </button>
-                            </div>
-                        </template>
-                    </Column>
-                </DataTable>
+                        <Column field="description" header="Keterangan" sortable>
+                            <template #body="{ data }">
+                                <div class="flex flex-col">
+                                    <span class="font-semibold text-gray-800 flex items-center gap-2">
+                                        {{ data.description }}
+                                        <i v-if="data.is_opening_balance" class="pi pi-verified text-blue-500" v-tooltip="'Saldo Awal'"></i>
+                                    </span>
+                                    <span class="text-xs text-gray-500 mt-1">
+                                        {{ data.cash_coa?.name }} 
+                                        <i class="pi pi-arrow-right text-[10px] mx-1"></i> 
+                                        {{ data.category_coa?.name ?? 'Transfer' }}
+                                    </span>
+                                </div>
+                            </template>
+                        </Column>
+
+                        <Column field="fund_type" header="Dana" sortable style="width: 10%">
+                            <template #body="{ data }">
+                                <Tag :value="data.fund_type === 'UNRESTRICTED' ? 'Bebas' : (data.fund_type === 'RESTRICTED' ? 'Terikat' : 'Abadi')" 
+                                     :severity="data.fund_type === 'UNRESTRICTED' ? 'success' : (data.fund_type === 'RESTRICTED' ? 'info' : 'warning')" 
+                                     class="text-[10px] uppercase" />
+                            </template>
+                        </Column>
+
+                        <Column field="amount" header="Nominal" sortable class="text-right" style="width: 15%">
+                            <template #body="{ data }">
+                                <span :class="{
+                                    'text-emerald-600 font-bold': data.type === 'INCOME',
+                                    'text-rose-600 font-bold': data.type === 'EXPENSE',
+                                    'text-blue-600 font-bold': data.type === 'TRANSFER'
+                                }">
+                                    {{ data.type === 'EXPENSE' ? '-' : '+' }} {{ formatCurrency(data.amount) }}
+                                </span>
+                            </template>
+                        </Column>
+
+                        <Column style="width: 10%; text-align: center" header="Aksi">
+                            <template #body="{ data }">
+                                <div class="flex justify-end gap-2">
+                                    <a v-if="data.proof_path" :href="'/storage/' + data.proof_path" target="_blank" 
+                                       class="p-2 text-gray-400 hover:text-blue-600 transition" v-tooltip.top="'Lihat Bukti'">
+                                        <i class="pi pi-image"></i>
+                                    </a>
+                                    <button @click="handleDelete($event, data.id)" 
+                                            class="p-2 text-gray-400 hover:text-rose-600 transition" 
+                                            v-tooltip.top="'Batalkan'">
+                                        <i class="pi pi-trash"></i>
+                                    </button>
+                                </div>
+                            </template>
+                        </Column>
+                    </DataTable>
+
+                </div>
             </div>
-
         </div>
+        
         <ConfirmPopup />
     </AppLayout>
 </template>
 
 <style scoped>
-/* Hapus scrollbar di filter tipe agar rapi */
-.scrollbar-hide::-webkit-scrollbar {
-    display: none;
-}
-.scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-
-/* Custom Paginator PrimeVue agar menyatu dengan Tema */
-:deep(.p-paginator) {
-    background: transparent;
-    border-top: 1px solid #f1f5f9;
-    padding: 1rem;
+/* Styling Tambahan */
+:deep(.p-datatable .p-datatable-thead > tr > th) {
+    background-color: #f8fafc;
+    color: #475569;
     font-size: 0.875rem;
 }
-:deep(.p-paginator-current) {
-    color: #94a3b8;
+:deep(.p-inputtext) {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
 }
 </style>

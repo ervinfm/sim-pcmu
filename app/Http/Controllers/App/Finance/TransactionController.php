@@ -7,53 +7,42 @@ use App\Models\FinanceTransaction;
 use App\Models\FinanceJournal;
 use App\Models\FinanceJournalDetail;
 use App\Models\FinanceCoa;
+use App\Models\FinanceClosingPeriod;
 use App\Models\OrganizationUnit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use Carbon\Carbon;
 
 class TransactionController extends Controller
 {
     /**
-     * Menampilkan Daftar Transaksi & Saldo Dashboard
+     * Menampilkan Daftar Transaksi (Client Side Filtering)
      */
     public function index(Request $request)
     {
         $user = auth()->user();
         
-        // 1. QUERY DASAR
         $query = FinanceTransaction::with(['cashCoa', 'categoryCoa', 'organizationUnit'])
             ->latest('date')
             ->latest('created_at');
 
-        // 2. FILTER AKSES (SCOPING)
-        // Jika bukan Super Admin, kunci ke unitnya sendiri
         if ($user->role !== 'super_admin') {
             $query->where('organization_unit_id', $user->organization_unit_id);
         } else {
-            // Jika Super Admin, cek apakah ada filter unit dari request
             if ($request->has('unit_id') && $request->unit_id) {
                 $query->where('organization_unit_id', $request->unit_id);
             }
         }
 
-        // 3. FILTER PENCARIAN
-        if ($request->search) {
-            $query->where('description', 'like', '%' . $request->search . '%');
-        }
-        if ($request->type) {
-            $query->where('type', $request->type);
-        }
-
-        // 4. HITUNG SALDO KAS (DASHBOARD CARD)
-        // Kita hitung saldo real-time dari jurnal
+        // Hitung Saldo Real-time
         $balances = $this->calculateCashBalances($user);
 
         return Inertia::render('App/Finance/Transactions/Index', [
-            'transactions' => $query->limit(2000)->get(),
-            'balances' => $balances, // Data untuk Kartu Saldo (Kas Tunai, Bank, Total)
-            'filters' => $request->only(['search', 'type', 'unit_id']),
+            // Ambil 2000 data terakhir untuk performa client-side yang optimal
+            'transactions' => $query->limit(2000)->get(), 
+            'balances' => $balances,
             'units' => $user->role === 'super_admin' ? OrganizationUnit::select('id', 'name')->get() : []
         ]);
     }
@@ -65,31 +54,31 @@ class TransactionController extends Controller
     {
         $user = auth()->user();
         
-        // Ambil Daftar Akun (COA)
-        // Logic: Tampilkan akun Global (unit_id NULL) DAN akun khusus Unit user
+        // Helper untuk mengambil akun
         $coaQuery = FinanceCoa::where('is_active', true)
             ->where(function($q) use ($user) {
-                $q->whereNull('organization_unit_id');
+                $q->whereNull('organization_unit_id'); // Akun Global
                 if ($user->organization_unit_id) {
-                    $q->orWhere('organization_unit_id', $user->organization_unit_id);
+                    $q->orWhere('organization_unit_id', $user->organization_unit_id); // Akun Unit
                 }
             })
             ->orderBy('code');
 
-        // Pisahkan akun untuk Dropdown
-        $cashAccounts = (clone $coaQuery)->where('is_cash', true)->get(); // Kas & Bank
-        $revenueAccounts = (clone $coaQuery)->where('type', 'REVENUE')->get(); // Kategori Pemasukan
-        $expenseAccounts = (clone $coaQuery)->where('type', 'EXPENSE')->get(); // Kategori Pengeluaran
-
         return Inertia::render('App/Finance/Transactions/Form', [
-            'cashAccounts' => $cashAccounts,
-            'revenueAccounts' => $revenueAccounts,
-            'expenseAccounts' => $expenseAccounts,
+            'transaction' => null, // Mode Create
+            'cashAccounts' => (clone $coaQuery)->where('is_cash', true)->get(),
+            'revenueAccounts' => (clone $coaQuery)->where('type', 'REVENUE')->get(),
+            'expenseAccounts' => (clone $coaQuery)->where('type', 'EXPENSE')->get(),
+            'fundTypes' => [
+                ['value' => 'UNRESTRICTED', 'label' => 'Dana Bebas / Operasional'],
+                ['value' => 'RESTRICTED', 'label' => 'Dana Terikat (Zakat/Donasi Khusus)'],
+                ['value' => 'ENDOWMENT', 'label' => 'Dana Abadi / Wakaf'],
+            ]
         ]);
     }
 
     /**
-     * Simpan Transaksi (CORE LOGIC HYBRID)
+     * Simpan Transaksi Baru
      */
     public function store(Request $request)
     {
@@ -97,57 +86,57 @@ class TransactionController extends Controller
             'type' => 'required|in:INCOME,EXPENSE,TRANSFER',
             'date' => 'required|date',
             'amount' => 'required|numeric|min:1',
-            'cash_coa_id' => 'required|exists:finance_coas,id', // Akun Kas Utama
-            
-            // Jika TRANSFER, butuh akun tujuan. Jika INCOME/EXPENSE butuh Kategori.
+            'cash_coa_id' => 'required|exists:finance_coas,id',
             'category_coa_id' => 'nullable|required_unless:type,TRANSFER|exists:finance_coas,id',
             'destination_coa_id' => 'nullable|required_if:type,TRANSFER|exists:finance_coas,id',
-            
             'description' => 'required|string|max:255',
-            'proof' => 'nullable|image|max:2048',
+            'proof' => 'nullable|image|max:3072', // Max 3MB
+            'fund_type' => 'required|in:UNRESTRICTED,RESTRICTED,ENDOWMENT',
         ]);
 
         $user = auth()->user();
         $unitId = $user->organization_unit_id;
 
-        DB::beginTransaction(); // Wajib pakai transaksi DB agar konsisten
+        // 1. CEK TUTUP BUKU
+        if ($this->isPeriodClosed($request->date, $unitId)) {
+            return back()->with('error', 'GAGAL: Periode bulan tersebut sudah Tutup Buku.');
+        }
+
+        DB::beginTransaction();
         try {
-            // 1. Upload Bukti (Jika ada)
             $proofPath = null;
             if ($request->hasFile('proof')) {
                 $proofPath = $request->file('proof')->store('uploads/finance', 'public');
             }
 
-            // 2. Buat Header Jurnal (Accounting Record)
+            // 2. Buat Header Jurnal
             $journal = FinanceJournal::create([
                 'organization_unit_id' => $unitId,
                 'user_id' => $user->id,
+                'journal_number' => 'JV/' . date('Ymd') . '/' . rand(1000,9999),
                 'transaction_date' => $request->date,
-                'reference_no' => 'TRX-' . time(), // Bisa dibuat lebih canggih formatnya
                 'description' => $request->description,
                 'status' => 'POSTED',
                 'total_amount' => $request->amount
             ]);
 
             // 3. Logic Double Entry (Jurnal Details)
+            $fundType = $request->fund_type;
+
             if ($request->type === 'INCOME') {
-                // PEMASUKAN: Debit Kas, Kredit Pendapatan
-                $this->createJournalEntry($journal->id, $request->cash_coa_id, $request->amount, 0); // D
-                $this->createJournalEntry($journal->id, $request->category_coa_id, 0, $request->amount); // K
+                $this->createJournalEntry($journal->id, $request->cash_coa_id, $request->amount, 0, $fundType);
+                $this->createJournalEntry($journal->id, $request->category_coa_id, 0, $request->amount, $fundType);
             } 
             elseif ($request->type === 'EXPENSE') {
-                // PENGELUARAN: Debit Beban, Kredit Kas
-                $this->createJournalEntry($journal->id, $request->category_coa_id, $request->amount, 0); // D
-                $this->createJournalEntry($journal->id, $request->cash_coa_id, 0, $request->amount); // K
+                $this->createJournalEntry($journal->id, $request->category_coa_id, $request->amount, 0, $fundType);
+                $this->createJournalEntry($journal->id, $request->cash_coa_id, 0, $request->amount, $fundType);
             }
             elseif ($request->type === 'TRANSFER') {
-                // TRANSFER: Debit Kas Tujuan, Kredit Kas Asal
-                // Note: Di form transfer, cash_coa_id adalah SUMBER, destination adalah TUJUAN
-                $this->createJournalEntry($journal->id, $request->destination_coa_id, $request->amount, 0); // D (Masuk)
-                $this->createJournalEntry($journal->id, $request->cash_coa_id, 0, $request->amount); // K (Keluar)
+                $this->createJournalEntry($journal->id, $request->destination_coa_id, $request->amount, 0, $fundType);
+                $this->createJournalEntry($journal->id, $request->cash_coa_id, 0, $request->amount, $fundType);
             }
 
-            // 4. Buat Record Transaksi UI (Single Entry View)
+            // 4. Buat Record Transaksi UI
             FinanceTransaction::create([
                 'organization_unit_id' => $unitId,
                 'user_id' => $user->id,
@@ -155,54 +144,158 @@ class TransactionController extends Controller
                 'type' => $request->type,
                 'date' => $request->date,
                 'cash_coa_id' => $request->cash_coa_id,
-                
-                // Jika transfer, category_coa_id kita pakai untuk simpan akun tujuan (hack sedikit agar hemat kolom)
-                // Atau biarkan null jika Anda ingin strict. Disini kita pakai category_coa_id untuk visualisasi
                 'category_coa_id' => $request->type === 'TRANSFER' ? $request->destination_coa_id : $request->category_coa_id,
-                
                 'amount' => $request->amount,
                 'description' => $request->description,
-                'proof_path' => $proofPath
+                'proof_path' => $proofPath,
+                'fund_type' => $fundType,
             ]);
 
             DB::commit();
-            return redirect()->route('transactions.index')->with('success', 'Transaksi berhasil dicatat.');
+            return redirect()->route('finance.transactions.index')->with('success', 'Transaksi berhasil dicatat.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Gagal menyimpan transaksi: ' . $e->getMessage());
+            if ($proofPath) Storage::disk('public')->delete($proofPath);
+            return back()->with('error', 'Error: ' . $e->getMessage());
         }
     }
 
     /**
-     * Hapus Transaksi (Rollback Jurnal)
+     * Form Edit Transaksi
      */
-    public function destroy(FinanceTransaction $transaction)
+    public function edit(FinanceTransaction $transaction)
     {
+        $user = auth()->user();
+
         // Security Check
-        if (auth()->user()->role !== 'super_admin' && $transaction->organization_unit_id !== auth()->user()->organization_unit_id) {
+        if ($user->role !== 'super_admin' && $transaction->organization_unit_id !== $user->organization_unit_id) {
             abort(403);
+        }
+        if ($this->isPeriodClosed($transaction->organization_unit_id, $transaction->date)) {
+            return back()->with('error', 'Transaksi ini berada di periode yang sudah ditutup. Tidak bisa diedit.');
+        }
+
+        $coaQuery = FinanceCoa::where('is_active', true)
+            ->where(function($q) use ($user) {
+                $q->whereNull('organization_unit_id')
+                  ->orWhere('organization_unit_id', $user->organization_unit_id);
+            })
+            ->orderBy('code');
+
+        return Inertia::render('App/Finance/Transactions/Form', [
+            'transaction' => $transaction, // Mode Edit
+            'cashAccounts' => (clone $coaQuery)->where('is_cash', true)->get(),
+            'revenueAccounts' => (clone $coaQuery)->where('type', 'REVENUE')->get(),
+            'expenseAccounts' => (clone $coaQuery)->where('type', 'EXPENSE')->get(),
+            'fundTypes' => [
+                ['value' => 'UNRESTRICTED', 'label' => 'Dana Bebas / Operasional'],
+                ['value' => 'RESTRICTED', 'label' => 'Dana Terikat (Zakat/Donasi Khusus)'],
+                ['value' => 'ENDOWMENT', 'label' => 'Dana Abadi / Wakaf'],
+            ]
+        ]);
+    }
+
+    /**
+     * Update Transaksi
+     */
+    public function update(Request $request, FinanceTransaction $transaction)
+    {
+        $request->validate([
+            'type' => 'required|in:INCOME,EXPENSE,TRANSFER',
+            'date' => 'required|date',
+            'amount' => 'required|numeric|min:1',
+            'cash_coa_id' => 'required|exists:finance_coas,id',
+            'category_coa_id' => 'nullable|required_unless:type,TRANSFER|exists:finance_coas,id',
+            'destination_coa_id' => 'nullable|required_if:type,TRANSFER|exists:finance_coas,id',
+            'description' => 'required|string|max:255',
+            'proof' => 'nullable|image|max:3072',
+            'fund_type' => 'required|in:UNRESTRICTED,RESTRICTED,ENDOWMENT',
+        ]);
+
+        // Security Check: Tutup Buku (Cek tanggal lama DAN tanggal baru)
+        if ($this->isPeriodClosed($transaction->organization_unit_id, $transaction->date)) {
+            return back()->with('error', 'Periode transaksi asli sudah ditutup.');
+        }
+        if ($this->isPeriodClosed($transaction->organization_unit_id, $request->date)) {
+            return back()->with('error', 'Tanggal baru berada di periode yang sudah ditutup.');
         }
 
         DB::beginTransaction();
         try {
-            // Hapus Bukti Fisik
-            if ($transaction->proof_path) {
-                Storage::disk('public')->delete($transaction->proof_path);
+            // 1. Handle File Upload
+            $proofPath = $transaction->proof_path;
+            if ($request->hasFile('proof')) {
+                if ($transaction->proof_path) Storage::disk('public')->delete($transaction->proof_path);
+                $proofPath = $request->file('proof')->store('uploads/finance', 'public');
             }
 
-            // Hapus Jurnal (Cascade akan menghapus Journal Details)
-            // Transaksi UI juga akan terhapus jika on delete cascade diset di migrasi
-            // Tapi aman-nya kita hapus manual atau rely on relation
-            
-            if ($transaction->journal) {
-                $transaction->journal->delete(); // Ini akan men-trigger delete details
-            } else {
-                $transaction->delete(); // Fallback jika jurnal hilang
+            // 2. Update Header Jurnal
+            $journal = $transaction->journal;
+            $journal->update([
+                'transaction_date' => $request->date,
+                'description' => $request->description,
+                'total_amount' => $request->amount
+            ]);
+
+            // 3. Reset Detail Jurnal (Hapus & Buat Baru agar bersih)
+            $journal->details()->delete();
+
+            // 4. Buat Ulang Detail Jurnal
+            $fundType = $request->fund_type;
+            if ($request->type === 'INCOME') {
+                $this->createJournalEntry($journal->id, $request->cash_coa_id, $request->amount, 0, $fundType);
+                $this->createJournalEntry($journal->id, $request->category_coa_id, 0, $request->amount, $fundType);
+            } 
+            elseif ($request->type === 'EXPENSE') {
+                $this->createJournalEntry($journal->id, $request->category_coa_id, $request->amount, 0, $fundType);
+                $this->createJournalEntry($journal->id, $request->cash_coa_id, 0, $request->amount, $fundType);
             }
+            elseif ($request->type === 'TRANSFER') {
+                $this->createJournalEntry($journal->id, $request->destination_coa_id, $request->amount, 0, $fundType);
+                $this->createJournalEntry($journal->id, $request->cash_coa_id, 0, $request->amount, $fundType);
+            }
+
+            // 5. Update Transaksi UI
+            $transaction->update([
+                'type' => $request->type,
+                'date' => $request->date,
+                'cash_coa_id' => $request->cash_coa_id,
+                'category_coa_id' => $request->type === 'TRANSFER' ? $request->destination_coa_id : $request->category_coa_id,
+                'amount' => $request->amount,
+                'description' => $request->description,
+                'proof_path' => $proofPath,
+                'fund_type' => $fundType,
+            ]);
 
             DB::commit();
-            return back()->with('success', 'Transaksi dibatalkan.');
+            return redirect()->route('finance.transactions.index')->with('success', 'Transaksi berhasil diperbarui.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Error: ' . $e->getMessage());
+        }
+    }
+
+    public function destroy(FinanceTransaction $transaction)
+    {
+        $user = auth()->user();
+
+        if ($user->role !== 'super_admin' && $transaction->organization_unit_id !== $user->organization_unit_id) abort(403);
+        
+        if ($this->isPeriodClosed($transaction->organization_unit_id, $transaction->date)) {
+            return back()->with('error', 'Gagal: Transaksi ini berada dalam periode yang sudah Tutup Buku.');
+        }
+
+        DB::beginTransaction();
+        try {
+            if ($transaction->proof_path) Storage::disk('public')->delete($transaction->proof_path);
+
+            if ($transaction->journal) $transaction->journal->delete(); // Cascade details
+            else $transaction->delete();
+
+            DB::commit();
+            return back()->with('success', 'Transaksi dibatalkan/dihapus.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -210,82 +303,41 @@ class TransactionController extends Controller
         }
     }
 
-    // --- HELPER METHODS ---
+    // --- HELPER ---
 
-   /**
-     * Simpan Akun Baru (Simple & Dynamic)
-     */
-    public function storeAccount(Request $request)
-    {
-        // 1. Validasi Input & Password Konfirmasi
-        $request->validate([
-            'password' => ['required', 'current_password'], // Wajib Password Login
-            'name' => 'required|string|max:255',
-            'type' => 'required|in:ASSET,LIABILITY,EQUITY,REVENUE,EXPENSE',
-            'is_cash' => 'boolean'
-        ]);
-
-        $user = auth()->user();
-
-        // 2. Generate Kode Otomatis Sederhana (Agar user tidak pusing mikir kode)
-        // Format: TIPE-TIMESTAMP (Contoh: ASSET-17012345) agar unik
-        $autoCode = $request->type . '-' . time();
-
-        // 3. Simpan ke Database
-        \App\Models\FinanceCoa::create([
-            'organization_unit_id' => $user->organization_unit_id,
-            'name' => $request->name,
-            'code' => $autoCode,
-            'type' => $request->type,
-            'parent_id' => null, // Kita buat level sejajar dulu agar simpel
-            'is_cash' => $request->is_cash ?? false,
-            'is_active' => true
-        ]);
-
-        return back()->with('success', 'Akun berhasil ditambahkan.');
-    }
-    
-    /**
-     * Helper untuk insert baris jurnal
-     */
-    private function createJournalEntry($journalId, $coaId, $debit, $credit)
+    private function createJournalEntry($journalId, $coaId, $debit, $credit, $fundType)
     {
         FinanceJournalDetail::create([
             'journal_id' => $journalId,
             'coa_id' => $coaId,
             'debit' => $debit,
             'credit' => $credit,
-            'fund_type' => 'UNRESTRICTED' // Default Dana Bebas, nanti bisa dikembangkan
+            'fund_type' => $fundType
         ]);
     }
 
-    /**
-     * Helper Hitung Saldo untuk Dashboard
-     */
+    private function isPeriodClosed($date, $unitId)
+    {
+        $transDate = Carbon::parse($date);
+        
+        return FinanceClosingPeriod::where('organization_unit_id', $unitId)
+            ->where('year', $transDate->year)
+            ->where('month', $transDate->month)
+            ->where('is_closed', true)
+            ->exists();
+    }
+
     private function calculateCashBalances($user)
     {
-        // Jika Super Admin tidak pilih unit, tampilkan total global
-        // Jika User Unit, tampilkan saldo unitnya saja
-        
-        $unitId = $user->organization_unit_id; // Bisa null (Global)
-
-        // Query Agregat
-        // Kita cari COA yang is_cash = true
-        // Lalu sum (Debit - Kredit) dari tabel journal_details
-        
+        $unitId = $user->organization_unit_id;
         $query = FinanceCoa::where('is_cash', true)->withSum(['journalDetails as balance' => function($q) use ($unitId) {
-            // Filter jurnal berdasarkan Unit
             if ($unitId) {
-                $q->whereHas('journal', function($sub) use ($unitId) {
-                    $sub->where('organization_unit_id', $unitId);
-                });
+                $q->whereHas('journal', fn($j) => $j->where('organization_unit_id', $unitId));
             }
-            // Rumus Saldo Normal Aset = Debit - Kredit
             $q->select(DB::raw('COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0)'));
         }], 'balance');
 
         $accounts = $query->get();
-
         return [
             'total' => $accounts->sum('balance'),
             'details' => $accounts->map(fn($a) => [
@@ -295,4 +347,5 @@ class TransactionController extends Controller
             ])
         ];
     }
+    
 }

@@ -14,15 +14,16 @@ class FinanceTransaction extends Model
     protected $fillable = [
         'organization_unit_id',
         'user_id',
-        'journal_id',       // Link ke Jurnal Akuntansi
-        'type',             // INCOME, EXPENSE, TRANSFER
+        'journal_id',
+        'type',             
         'date',
-        'cash_coa_id',      // Akun Kas/Bank
-        'category_coa_id',  // Akun Lawan
+        'cash_coa_id',      
+        'category_coa_id',  
         'amount',
         'description',
-        'proof_path',       // Foto Bukti
-        'is_opening_balance', // Flag Saldo Awal
+        'proof_path',
+        'fund_type',        
+        'is_opening_balance'
     ];
 
     protected $casts = [
@@ -30,8 +31,6 @@ class FinanceTransaction extends Model
         'amount' => 'decimal:2',
         'is_opening_balance' => 'boolean',
     ];
-
-    // --- RELATIONSHIPS ---
 
     public function organizationUnit()
     {
@@ -48,13 +47,13 @@ class FinanceTransaction extends Model
         return $this->belongsTo(FinanceJournal::class, 'journal_id');
     }
 
-    // Relasi ke Akun Kas (Sumber Dana)
+    // [PERBAIKAN] Kembali ke nama 'cashCoa' sesuai kode lama Anda
     public function cashCoa()
     {
         return $this->belongsTo(FinanceCoa::class, 'cash_coa_id');
     }
 
-    // Relasi ke Akun Kategori (Lawan Transaksi)
+    // [PERBAIKAN] Kembali ke nama 'categoryCoa' sesuai kode lama Anda
     public function categoryCoa()
     {
         return $this->belongsTo(FinanceCoa::class, 'category_coa_id');

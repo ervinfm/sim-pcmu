@@ -1,51 +1,90 @@
 <script setup>
-import { ref } from 'vue';
-import { Head, Link, useForm, router } from '@inertiajs/vue3';
+import { ref, computed } from 'vue';
+import { Head, useForm, router, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import DataTable from 'primevue/datatable';
-import Column from 'primevue/column';
+import FinanceNavigation from '@/Components/Finance/FinanceNavigation.vue';
+
+// PrimeVue Components
 import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import ConfirmPopup from 'primevue/confirmpopup';
 import { useConfirm } from "primevue/useconfirm";
+import { useToast } from "primevue/usetoast";
 
 const props = defineProps({
-    periods: Array
+    periods: Array, // Data periode yg sudah ditutup
 });
 
-// Form Tutup Buku
-const form = useForm({
-    month: new Date().getMonth(), // Bulan Lalu (Logic 0-11 JS agak tricky, sesuaikan nanti)
-    year: new Date().getFullYear()
-});
+const page = usePage();
+const confirm = useConfirm();
+const toast = useToast();
 
+const showModal = ref(false);
+const currentYear = ref(new Date().getFullYear());
+const yearOptions = [2024, 2025, 2026, 2027, 2028];
+
+// Data Bulan Statis
 const months = [
-    { label: 'Januari', value: 1 }, { label: 'Februari', value: 2 }, { label: 'Maret', value: 3 },
-    { label: 'April', value: 4 }, { label: 'Mei', value: 5 }, { label: 'Juni', value: 6 },
-    { label: 'Juli', value: 7 }, { label: 'Agustus', value: 8 }, { label: 'September', value: 9 },
-    { label: 'Oktober', value: 10 }, { label: 'November', value: 11 }, { label: 'Desember', value: 12 }
+    { name: 'Januari', value: 1 }, { name: 'Februari', value: 2 },
+    { name: 'Maret', value: 3 }, { name: 'April', value: 4 },
+    { name: 'Mei', value: 5 }, { name: 'Juni', value: 6 },
+    { name: 'Juli', value: 7 }, { name: 'Agustus', value: 8 },
+    { name: 'September', value: 9 }, { name: 'Oktober', value: 10 },
+    { name: 'November', value: 11 }, { name: 'Desember', value: 12 },
 ];
 
-const years = [2023, 2024, 2025, 2026, 2027].map(y => ({ label: y, value: y }));
+const form = useForm({
+    year: currentYear.value,
+    month: null,
+});
 
-// Logic Hapus/Buka Kunci
-const confirm = useConfirm();
-const handleUnlock = (event, id) => {
-    confirm.require({
-        target: event.currentTarget,
-        message: 'PERINGATAN: Membuka kunci periode berisiko data historis berubah. Lanjutkan?',
-        icon: 'pi pi-exclamation-triangle',
-        acceptClass: 'p-button-danger',
-        accept: () => {
-            router.delete(route('finance.closing-periods.destroy', id));
+// Helper: Cari data closing berdasarkan bulan & tahun
+const getClosingData = (monthVal, yearVal) => {
+    return props.periods.find(p => p.month === monthVal && p.year === yearVal);
+};
+
+// Helper: Cek status
+const isClosed = (monthVal, yearVal) => {
+    return !!getClosingData(monthVal, yearVal);
+};
+
+const openModal = () => {
+    form.reset();
+    form.year = currentYear.value;
+    // Auto-select bulan sebelumnya (karena biasanya kita tutup buku bulan lalu)
+    const prevMonth = new Date().getMonth(); // 0-11, where 0 is Jan. but our value is 1-12. 
+    // Logic: if current is Feb (1), prev is Jan (1). 
+    form.month = prevMonth === 0 ? 12 : prevMonth; 
+    if(prevMonth === 0) form.year = currentYear.value - 1;
+
+    showModal.value = true;
+};
+
+const submitClosing = () => {
+    form.post(route('finance.closing-periods.store'), {
+        onSuccess: () => {
+            showModal.value = false;
+            toast.add({ severity: 'success', summary: 'Berhasil', detail: 'Periode berhasil ditutup', life: 3000 });
+        },
+        onError: () => {
+            toast.add({ severity: 'error', summary: 'Gagal', detail: 'Terjadi kesalahan', life: 3000 });
         }
     });
 };
 
-const submitClose = () => {
-    form.post(route('finance.closing-periods.store'), {
-        onSuccess: () => form.reset(),
+const confirmDelete = (event, id) => {
+    confirm.require({
+        target: event.currentTarget,
+        message: 'PERINGATAN SUPER ADMIN: Membuka periode ini memungkinkan perubahan data historis. Lanjutkan?',
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger',
+        accept: () => {
+            router.delete(route('finance.closing-periods.destroy', id), {
+                onSuccess: () => toast.add({ severity: 'warn', summary: 'Unlocked', detail: 'Periode dibuka kembali', life: 3000 })
+            });
+        }
     });
 };
 </script>
@@ -54,91 +93,111 @@ const submitClose = () => {
     <Head title="Tutup Buku" />
 
     <AppLayout>
-        <div class="px-4 md:px-6 space-y-6">
-            
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 class="text-2xl font-black text-gray-800 tracking-tight">Tutup Buku</h1>
-                    <p class="text-gray-500 text-sm">Kunci periode akuntansi agar data aman dari perubahan.</p>
-                </div>
-            </div>
+        <template #header>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Tutup Buku Periode</h2>
+        </template>
 
-            <div class="border-b border-gray-100 overflow-x-auto">
-                <nav class="flex items-center gap-6 min-w-max">
-                    <Link :href="route('finance.transactions.index')" class="py-4 px-1 text-gray-500 hover:text-emerald-600 font-medium text-sm border-b-2 border-transparent hover:border-emerald-200 flex items-center gap-2"><i class="pi pi-list"></i> Transaksi</Link>
-                    <Link :href="route('finance.reports.index')" class="py-4 px-1 text-gray-500 hover:text-emerald-600 font-medium text-sm border-b-2 border-transparent hover:border-emerald-200 flex items-center gap-2"><i class="pi pi-chart-bar"></i> Laporan</Link>
-                    <Link :href="route('finance.opening-balances.index')" class="py-4 px-1 text-gray-500 hover:text-emerald-600 font-medium text-sm border-b-2 border-transparent hover:border-emerald-200 flex items-center gap-2"><i class="pi pi-wallet"></i> Saldo Awal</Link>
-                    <Link :href="route('finance.closing-periods.index')" class="py-4 px-1 text-emerald-700 font-bold text-sm border-b-2 border-emerald-500 flex items-center gap-2"><i class="pi pi-lock"></i> Tutup Buku</Link>
-                    <Link :href="route('finance.accounts.index')" class="py-4 px-1 text-gray-500 hover:text-emerald-600 font-medium text-sm border-b-2 border-transparent hover:border-emerald-200 flex items-center gap-2"><i class="pi pi-book"></i> Master Akun</Link>
-                </nav>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div class="py-4">
+            <div class="max-w-7xl mx-auto sm:px-4 lg:px-6 space-y-6">
                 
-                <div class="lg:col-span-1">
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm sticky top-6">
-                        <h3 class="font-bold text-gray-800 mb-4">Kunci Periode Baru</h3>
-                        <form @submit.prevent="submitClose" class="space-y-4">
-                            <div class="space-y-1">
-                                <label class="text-xs font-bold text-gray-500">Bulan</label>
-                                <Select v-model="form.month" :options="months" optionLabel="label" optionValue="value" fluid placeholder="Pilih Bulan" />
-                            </div>
-                            <div class="space-y-1">
-                                <label class="text-xs font-bold text-gray-500">Tahun</label>
-                                <Select v-model="form.year" :options="years" optionLabel="label" optionValue="value" fluid placeholder="Pilih Tahun" />
-                            </div>
-                            
-                            <Button type="submit" label="Kunci Periode Ini" icon="pi pi-lock" 
-                                    class="w-full !bg-gray-800 !border-gray-800" 
-                                    :loading="form.processing" />
-                        </form>
+                <FinanceNavigation />
+
+                <div class="bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded-r shadow-sm flex items-start gap-3">
+                    <i class="pi pi-info-circle text-indigo-500 text-xl mt-0.5"></i>
+                    <div>
+                        <h4 class="font-bold text-indigo-900 text-sm">Manajemen Periode Akuntansi</h4>
+                        <p class="text-sm text-indigo-700 mt-1">
+                            Tutup buku akan mengunci seluruh transaksi (Pemasukan, Pengeluaran, Jurnal) pada bulan tersebut. 
+                            Pastikan rekonsiliasi bank dan penyesuaian sudah selesai sebelum menutup buku.
+                        </p>
                     </div>
                 </div>
 
-                <div class="lg:col-span-2">
-                    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <div class="p-4 border-b border-gray-50 bg-gray-50/50">
-                            <h3 class="font-bold text-gray-700">Riwayat Penutupan</h3>
+                <div class="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 gap-4">
+                    <div class="flex items-center gap-3 w-full md:w-auto">
+                         <span class="text-gray-500 font-bold text-sm uppercase tracking-wide">Tahun Buku:</span>
+                         <Select v-model="currentYear" :options="yearOptions" class="w-32 font-bold" />
+                    </div>
+                    <Button label="Tutup Buku Baru" icon="pi pi-lock" severity="warning" @click="openModal" class="w-full md:w-auto" />
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div v-for="m in months" :key="m.value" 
+                         class="relative rounded-xl border-2 transition-all duration-200 p-5 flex flex-col justify-between h-40 group"
+                         :class="isClosed(m.value, currentYear) 
+                            ? 'bg-white border-emerald-500 shadow-sm' 
+                            : 'bg-gray-50 border-dashed border-gray-300 opacity-80 hover:opacity-100 hover:border-gray-400'">
+                        
+                        <div class="flex justify-between items-start">
+                            <span class="font-bold text-lg" 
+                                  :class="isClosed(m.value, currentYear) ? 'text-emerald-700' : 'text-gray-500'">
+                                {{ m.name }}
+                            </span>
+                            <span class="text-xs font-bold bg-gray-100 px-2 py-1 rounded text-gray-500">
+                                {{ currentYear }}
+                            </span>
                         </div>
-                        <DataTable :value="periods" stripedRows>
-                            <template #empty>
-                                <div class="text-center py-8 text-gray-400 text-sm">Belum ada periode yang ditutup.</div>
-                            </template>
-                            
-                            <Column header="Periode">
-                                <template #body="{ data }">
-                                    <span class="font-bold text-gray-800">{{ months.find(m => m.value === data.month)?.label }} {{ data.year }}</span>
-                                </template>
-                            </Column>
-                            
-                            <Column header="Status">
-                                <template #body="{ data }">
-                                    <Tag value="Terkunci" severity="secondary" icon="pi pi-lock" />
-                                </template>
-                            </Column>
 
-                            <Column header="Ditutup Oleh">
-                                <template #body="{ data }">
-                                    <div class="text-xs">
-                                        <p class="font-bold text-gray-700">{{ data.closer?.name || 'System' }}</p>
-                                        <p class="text-gray-400">{{ new Date(data.closed_at).toLocaleDateString('id-ID') }}</p>
-                                    </div>
-                                </template>
-                            </Column>
+                        <div v-if="isClosed(m.value, currentYear)">
+                            <div class="flex items-center gap-2 mt-2">
+                                <i class="pi pi-lock text-emerald-600 text-xl"></i>
+                                <div>
+                                    <div class="text-[10px] uppercase text-gray-400 font-bold">Status</div>
+                                    <div class="text-sm font-bold text-emerald-600">TERKUNCI</div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3 pt-2 border-t border-gray-100 text-[10px] text-gray-500">
+                                <p>Oleh: {{ getClosingData(m.value, currentYear).closed_by_name }}</p>
+                                <p>Tgl: {{ getClosingData(m.value, currentYear).closed_at_formatted }}</p>
+                            </div>
 
-                            <Column header="Aksi" style="text-align: right">
-                                <template #body="{ data }">
-                                    <Button icon="pi pi-lock-open" text rounded severity="danger" 
-                                            @click="handleUnlock($event, data.id)" 
-                                            v-tooltip.top="'Buka Kunci (Darurat)'" />
-                                </template>
-                            </Column>
-                        </DataTable>
+                            <div v-if="$page.props.auth.user.role === 'super_admin'" 
+                                 class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button icon="pi pi-lock-open" rounded text severity="danger" size="small" 
+                                        @click="confirmDelete($event, getClosingData(m.value, currentYear).id)" 
+                                        v-tooltip.left="'Buka Kunci (Super Admin)'" />
+                            </div>
+                        </div>
+
+                        <div v-else class="flex flex-col items-center justify-center h-full text-gray-400">
+                            <i class="pi pi-lock-open text-2xl opacity-20 mb-1"></i>
+                            <span class="text-xs font-medium">Periode Terbuka</span>
+                        </div>
+
                     </div>
                 </div>
 
             </div>
         </div>
+
+        <Dialog v-model:visible="showModal" header="Konfirmasi Tutup Buku" modal class="w-full md:w-[450px]">
+            <div class="flex flex-col gap-5">
+                <div class="bg-amber-50 p-3 rounded-lg border border-amber-200 text-amber-800 text-sm flex gap-3 items-start">
+                    <i class="pi pi-exclamation-triangle mt-1 text-amber-600"></i>
+                    <span>Tindakan ini akan <b>MENGUNCI PERMANEN</b> seluruh transaksi pada periode yang dipilih. Tidak ada data yang bisa diedit/hapus setelah ini.</span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col gap-2">
+                        <label class="font-semibold text-sm">Bulan</label>
+                        <Select v-model="form.month" :options="months" optionLabel="name" optionValue="value" placeholder="Pilih Bulan" class="w-full" />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <label class="font-semibold text-sm">Tahun</label>
+                        <Select v-model="form.year" :options="yearOptions" class="w-full" />
+                    </div>
+                </div>
+            </div>
+
+            <template #footer>
+                <div class="flex justify-end gap-2 pt-4">
+                    <Button label="Batal" icon="pi pi-times" text severity="secondary" @click="showModal = false" />
+                    <Button label="Kunci Periode Sekarang" icon="pi pi-lock" severity="warning" @click="submitClosing" :loading="form.processing" />
+                </div>
+            </template>
+        </Dialog>
+
         <ConfirmPopup />
     </AppLayout>
 </template>

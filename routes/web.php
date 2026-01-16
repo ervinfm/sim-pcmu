@@ -16,9 +16,10 @@ use App\Http\Controllers\App\Web\SettingController;
 // --- CONTROLLERS: FINANCE (MODUL KEUANGAN) ---
 use App\Http\Controllers\App\Finance\TransactionController;
 use App\Http\Controllers\App\Finance\AccountController;
+use App\Http\Controllers\App\Finance\LedgerController;
 use App\Http\Controllers\App\Finance\OpeningBalanceController;
 use App\Http\Controllers\App\Finance\ClosingPeriodController;
-use App\Http\Controllers\App\Finance\ReportController;
+use App\Http\Controllers\App\Finance\BudgetController;
 
 // --- CONTROLLERS: ASSETS & MEMBERS ---
 use App\Http\Controllers\App\Assets\AssetController;
@@ -68,26 +69,33 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     // MODUL 1: KEUANGAN (FINANCE)
     // =========================================================================
-    Route::prefix('finance')->name('finance.')->group(function () {
-        
-        // A. Transaksi & Akun
+    Route::middleware(['auth'])->prefix('finance')->name('finance.')->group(function () {
+    
+        // 1. TRANSAKSI & AKUN (Operasional Harian)
+        Route::get('accounts/generate-code', [AccountController::class, 'generateCode'])
+            ->name('accounts.generate-code');
         Route::resource('accounts', AccountController::class);
+
         Route::resource('transactions', TransactionController::class);
 
-        // B. Setup Saldo Awal
+        // 2. BUKU BESAR (Pengganti Laporan)
+        // Hanya method index karena LedgerController baru kita hanya punya fungsi 'index'
+        Route::get('ledgers', [LedgerController::class, 'index'])->name('ledgers.index');
+
+        // 3. ANGGARAN / RAPB (Fitur Baru)
+        // Gunakan resource, tapi mungkin nanti kita hanya butuh index, store, update
+        Route::resource('budgets', BudgetController::class);
+
+        // 4. SETUP SALDO AWAL
         Route::get('opening-balances', [OpeningBalanceController::class, 'index'])->name('opening-balances.index');
         Route::get('opening-balances/create', [OpeningBalanceController::class, 'create'])->name('opening-balances.create');
         Route::post('opening-balances', [OpeningBalanceController::class, 'store'])->name('opening-balances.store');
 
-        // C. Tutup Buku
+        // 5. TUTUP BUKU (Closing Period)
         Route::get('closing-periods', [ClosingPeriodController::class, 'index'])->name('closing-periods.index');
         Route::post('closing-periods', [ClosingPeriodController::class, 'store'])->name('closing-periods.store');
         Route::delete('closing-periods/{id}', [ClosingPeriodController::class, 'destroy'])->name('closing-periods.destroy');
 
-        // D. Laporan
-        Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
-        Route::get('reports/balance-sheet', [ReportController::class, 'balanceSheet'])->name('reports.balance-sheet');
-        Route::get('reports/income-statement', [ReportController::class, 'incomeStatement'])->name('reports.income-statement');
     });
 
 
@@ -145,10 +153,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::resource('organizations', OrganizationController::class);
         
         // Manajemen Struktur & Wilayah
-        Route::get('organizations/{organization}/structure', [OrganizationController::class, 'structure'])->name('organizations.structure');
-        Route::post('organizations/{organization}/structure', [OrganizationController::class, 'updateStructure'])->name('organizations.structure.update');
-        Route::get('organizations/{organization}/territory', [OrganizationController::class, 'territory'])->name('organizations.territory');
-        Route::post('organizations/{organization}/territory', [OrganizationController::class, 'updateTerritory'])->name('organizations.territory.update');
+        Route::get('organizations/{organization}/structure', [OrganizationController::class, 'editStructure'])
+            ->name('organizations.structure');
+        Route::post('organizations/{organization}/structure', [OrganizationController::class, 'storeStructure'])
+            ->name('organizations.structure.store');
+        Route::delete('organizations/structure/{id}', [OrganizationController::class, 'destroyStructure'])
+            ->name('organizations.structure.destroy');
+        Route::get('organizations/{organization}/territory', [OrganizationController::class, 'editTerritory'])
+            ->name('organizations.territory');
+        Route::post('organizations/{organization}/territory', [OrganizationController::class, 'storeTerritory'])
+            ->name('organizations.territory.store');
+        Route::delete('organizations/territory/{id}', [OrganizationController::class, 'destroyTerritory'])
+            ->name('organizations.territory.destroy');    
     });
 
     // =========================================================================

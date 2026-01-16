@@ -14,11 +14,12 @@ class FinanceJournal extends Model
     protected $fillable = [
         'organization_unit_id',
         'user_id',
-        'journal_number',   // JU/2025/01/001
+        'journal_number',   
         'transaction_date',
-        'reference',        // No Invoice / Keterangan Singkat
-        'description',      // Keterangan Lengkap
-        'total_amount',     // Checksum (Total Debit)
+        'reference',        
+        'description',      
+        'total_amount',     
+        'status',           // [BARU] POSTED, DRAFT, VOID
     ];
 
     protected $casts = [
@@ -36,13 +37,11 @@ class FinanceJournal extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Relasi 1-to-Many ke Rincian Debit/Kredit
     public function details()
     {
         return $this->hasMany(FinanceJournalDetail::class, 'journal_id');
     }
 
-    // Relasi balik ke Transaksi UI (Optional, jika jurnal ini hasil generate otomatis)
     public function transaction()
     {
         return $this->hasOne(FinanceTransaction::class, 'journal_id');

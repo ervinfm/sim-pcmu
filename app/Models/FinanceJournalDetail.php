@@ -16,6 +16,7 @@ class FinanceJournalDetail extends Model
         'coa_id',
         'debit',
         'credit',
+        'fund_type', // [BARU]
     ];
 
     protected $casts = [

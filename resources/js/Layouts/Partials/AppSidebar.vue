@@ -28,6 +28,12 @@ const menuItems = computed(() => [
         show: canManageResources.value, 
         items: [
             { 
+                label: 'Struktur Organisasi', 
+                route: 'organizations.index', 
+                icon: 'pi pi-sitemap', show: 
+                true, activePaths: ['organizations.*'] 
+            },
+            { 
                 label: 'Database Anggota', 
                 route: 'members.index', 
                 icon: 'pi pi-users', 
@@ -76,7 +82,6 @@ const menuItems = computed(() => [
         show: isSuperAdmin.value, 
         items: [
             { label: 'Pengguna & Hak Akses', route: 'users.index', icon: 'pi pi-shield', show: true, activePaths: ['users.*'] },
-            { label: 'Struktur Organisasi', route: 'organizations.index', icon: 'pi pi-sitemap', show: true, activePaths: ['organizations.*'] },
         ]
     },
     {

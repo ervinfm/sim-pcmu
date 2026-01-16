@@ -11,10 +11,20 @@ class ClosingPeriodController extends Controller
 {
     public function index()
     {
+        // Ambil data periode yang sudah ditutup untuk Unit ini
         $periods = FinanceClosingPeriod::where('organization_unit_id', auth()->user()->organization_unit_id)
             ->orderByDesc('year')
             ->orderByDesc('month')
-            ->get();
+            ->get()
+            ->map(function($period) {
+                return [
+                    'id' => $period->id,
+                    'year' => $period->year,
+                    'month' => $period->month,
+                    'closed_at_formatted' => $period->closed_at->format('d M Y H:i'),
+                    'closed_by_name' => $period->closer->name ?? 'Sistem',
+                ];
+            });
 
         return Inertia::render('App/Finance/ClosingPeriod/Index', [
             'periods' => $periods
@@ -30,7 +40,7 @@ class ClosingPeriodController extends Controller
 
         $unitId = auth()->user()->organization_unit_id;
 
-        // Cek apakah sudah ditutup sebelumnya
+        // Validasi 1: Cek Duplikasi
         $exists = FinanceClosingPeriod::where('organization_unit_id', $unitId)
             ->where('year', $request->year)
             ->where('month', $request->month)
@@ -38,6 +48,13 @@ class ClosingPeriodController extends Controller
 
         if ($exists) {
             return back()->with('error', 'Periode ini sudah ditutup sebelumnya.');
+        }
+
+        // Validasi 2: Jangan izinkan menutup periode masa depan (Next Month)
+        // Kita hanya boleh menutup bulan yang sudah lewat atau bulan berjalan
+        $inputDate = \Carbon\Carbon::createFromDate($request->year, $request->month, 1)->endOfMonth();
+        if ($inputDate->isFuture() && $inputDate->month > now()->month) {
+             return back()->with('error', 'Anda tidak dapat menutup buku untuk bulan yang belum berakhir.');
         }
 
         FinanceClosingPeriod::create([
@@ -54,14 +71,18 @@ class ClosingPeriodController extends Controller
 
     public function destroy($id)
     {
-        // Hanya Super Admin atau Role Tertentu yang boleh membuka kunci
+        // Validasi Role: Hanya Super Admin
         if (auth()->user()->role !== 'super_admin') {
-            return back()->with('error', 'Hanya Super Admin yang boleh membuka kunci periode.');
+            return back()->with('error', 'Akses Ditolak. Hubungi Administrator Pusat untuk membuka kunci periode.');
         }
 
         $period = FinanceClosingPeriod::findOrFail($id);
+        
+        // Pastikan hanya menghapus milik unit user tersebut (jika super admin pun terikat unit)
+        // Atau biarkan bebas jika super admin global.
+        
         $period->delete();
 
-        return back()->with('success', 'Periode dibuka kembali.');
+        return back()->with('success', 'Periode berhasil dibuka kembali. Transaksi dapat diedit.');
     }
 }

@@ -29,14 +29,11 @@ class OpeningBalanceController extends Controller
     {
         $unitId = auth()->user()->organization_unit_id;
 
-        // Ambil Akun Kas/Bank (Untuk Debit)
         $cashAccounts = FinanceCoa::where('is_cash', true)
             ->where(function($q) use ($unitId) {
                 $q->whereNull('organization_unit_id')->orWhere('organization_unit_id', $unitId);
             })->get();
 
-        // Ambil Akun Modal/Ekuitas (Untuk Kredit/Penyeimbang)
-        // Biasanya akun 3-XXX (Equity)
         $equityAccounts = FinanceCoa::where('type', 'EQUITY')
             ->where(function($q) use ($unitId) {
                 $q->whereNull('organization_unit_id')->orWhere('organization_unit_id', $unitId);
@@ -52,62 +49,65 @@ class OpeningBalanceController extends Controller
     {
         $request->validate([
             'date' => 'required|date',
-            'items' => 'required|array|min:1',
+            'equity_coa_id' => 'required|exists:finance_coas,id',
+            'items' => 'required|array',
             'items.*.cash_coa_id' => 'required|exists:finance_coas,id',
             'items.*.amount' => 'required|numeric|min:0',
-            'equity_coa_id' => 'required|exists:finance_coas,id', // Akun Penyeimbang
         ]);
 
-        DB::transaction(function () use ($request) {
-            $user = auth()->user();
-            $unitId = $user->organization_unit_id;
-            
+        $user = auth()->user();
+        $unitId = $user->organization_unit_id;
+
+        DB::transaction(function () use ($request, $user, $unitId) {
             foreach ($request->items as $item) {
                 if ($item['amount'] <= 0) continue;
 
-                // 1. Buat Header Jurnal
+                // 1. Header Jurnal
                 $journal = FinanceJournal::create([
                     'organization_unit_id' => $unitId,
                     'user_id' => $user->id,
-                    'journal_number' => 'OPB/' . date('Ymd') . '/' . uniqid(),
+                    'journal_number' => 'JV/OPENING/' . date('Y'),
                     'transaction_date' => $request->date,
-                    'description' => 'Saldo Awal: ' . FinanceCoa::find($item['cash_coa_id'])->name,
+                    'description' => 'Saldo Awal Sistem',
                     'total_amount' => $item['amount'],
+                    'status' => 'POSTED'
                 ]);
 
-                // 2. Buat Transaksi (Log UI)
+                // 2. Transaksi UI
                 FinanceTransaction::create([
                     'organization_unit_id' => $unitId,
                     'user_id' => $user->id,
                     'journal_id' => $journal->id,
-                    'type' => 'INCOME', // Dianggap Income agar menambah Kas
+                    'type' => 'INCOME',
                     'date' => $request->date,
                     'cash_coa_id' => $item['cash_coa_id'],
                     'category_coa_id' => $request->equity_coa_id,
                     'amount' => $item['amount'],
                     'description' => 'Setup Saldo Awal',
                     'is_opening_balance' => true,
+                    'fund_type' => 'UNRESTRICTED', // [FIX] Default Dana Bebas
                 ]);
 
-                // 3. Buat Detail Jurnal (Debit Kas, Kredit Modal)
-                // Debit: Kas Bertambah
+                // 3. Debit Kas
                 FinanceJournalDetail::create([
                     'journal_id' => $journal->id,
                     'coa_id' => $item['cash_coa_id'],
                     'debit' => $item['amount'],
                     'credit' => 0,
+                    'fund_type' => 'UNRESTRICTED' // [FIX]
                 ]);
 
-                // Kredit: Modal/Ekuitas Bertambah
+                // 4. Kredit Ekuitas
                 FinanceJournalDetail::create([
                     'journal_id' => $journal->id,
                     'coa_id' => $request->equity_coa_id,
                     'debit' => 0,
                     'credit' => $item['amount'],
+                    'fund_type' => 'UNRESTRICTED' // [FIX]
                 ]);
             }
         });
 
-        return redirect()->route('finance.opening-balances.index')->with('success', 'Saldo awal berhasil disetup.');
+        return redirect()->route('finance.transactions.index')->with('success', 'Saldo awal berhasil disetup.');
     }
 }

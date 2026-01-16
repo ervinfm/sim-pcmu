@@ -228,6 +228,10 @@ class OrganizationController extends Controller
         return redirect()->route('organizations.index')->with('success', 'Unit dihapus.');
     }
 
+    // ==========================================
+    // BAGIAN BARU: MANAJEMEN STRUCTURE
+    // ==========================================
+
     public function editStructure(OrganizationUnit $organization)
     {
         // Load struktur yang sudah ada + data membernya

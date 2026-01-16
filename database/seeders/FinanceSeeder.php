@@ -9,192 +9,161 @@ use App\Models\FinanceCoa;
 use App\Models\FinanceJournal;
 use App\Models\FinanceJournalDetail;
 use App\Models\FinanceTransaction;
-use Carbon\Carbon;
 
 class FinanceSeeder extends Seeder
 {
     public function run(): void
     {
-        // 1. BUAT BAGAN AKUN STANDAR (GLOBAL COA)
-        // Akun ini milik Pusat (NULL unit_id) dan otomatis diwariskan ke semua unit
+        // 1. BUAT COA STANDAR (Format X.XX.XX.XXX)
         $coas = $this->createStandardCOA();
 
-        // 2. SIMULASI TRANSAKSI (Hanya jika ada Unit & User)
+        // 2. SIMULASI TRANSAKSI
         $unit = OrganizationUnit::first();
         $user = User::first(); 
 
         if ($unit && $user) {
             $this->command->info('Seeding transaksi dummy untuk Unit: ' . $unit->name);
             
-            // A. Setup Saldo Awal (PENTING: Fitur Baru)
-            $this->createOpeningBalance($unit, $user, $coas);
+            // Ambil ID akun penting untuk transaksi
+            // Note: Kita harus mencari ID berdasarkan kode baru
+            $cashId = FinanceCoa::where('code', '1.10.02.001')->first()->id; // BSI
+            $equityId = FinanceCoa::where('code', '3.10.01.001')->first()->id; // Saldo Awal
+            
+            // A. Saldo Awal
+            $this->createOpeningBalance($unit, $user, $cashId, $equityId);
 
-            // B. Transaksi Harian (Pemasukan & Pengeluaran)
-            $this->createDailyTransactions($unit, $user, $coas);
+            // B. Transaksi Harian
+            $this->createDailyTransactions($unit, $user);
         }
     }
 
-    /**
-     * Membuat Struktur Hierarki COA
-     */
     private function createStandardCOA()
     {
-        $accounts = [];
+        // Helper function untuk create akun
+        $create = function($code, $name, $type, $parentId = null, $isCash = false) {
+            return FinanceCoa::create([
+                'organization_unit_id' => null, // Global / Pusat
+                'code' => $code,
+                'name' => $name,
+                'type' => $type,
+                'parent_id' => $parentId,
+                'is_cash' => $isCash,
+                'is_active' => true
+            ]);
+        };
 
         // --- LEVEL 1: ROOT ---
-        $asset = FinanceCoa::create(['code' => '1-0000', 'name' => 'ASET', 'type' => 'ASSET', 'organization_unit_id' => null]);
-        $liab  = FinanceCoa::create(['code' => '2-0000', 'name' => 'KEWAJIBAN', 'type' => 'LIABILITY', 'organization_unit_id' => null]);
-        $equity= FinanceCoa::create(['code' => '3-0000', 'name' => 'EKUITAS / MODAL', 'type' => 'EQUITY', 'organization_unit_id' => null]);
-        $rev   = FinanceCoa::create(['code' => '4-0000', 'name' => 'PENERIMAAN', 'type' => 'REVENUE', 'organization_unit_id' => null]);
-        $exp   = FinanceCoa::create(['code' => '5-0000', 'name' => 'PENGELUARAN', 'type' => 'EXPENSE', 'organization_unit_id' => null]);
+        $a = $create('1', 'ASET', 'ASSET');
+        $l = $create('2', 'KEWAJIBAN', 'LIABILITY');
+        $e = $create('3', 'ASET NETO / EKUITAS', 'EQUITY');
+        $r = $create('4', 'PENERIMAAN', 'REVENUE');
+        $x = $create('5', 'PENGELUARAN', 'EXPENSE');
 
-        // --- LEVEL 2 & 3: DETAILS ---
+        // --- LEVEL 2 & 3 & 4 (HIERARKI) ---
 
-        // 1. ASET -> KAS & BANK
-        $kasBank = FinanceCoa::create(['parent_id' => $asset->id, 'code' => '1-1000', 'name' => 'Kas & Bank', 'type' => 'ASSET', 'organization_unit_id' => null]);
+        // 1. ASET
+        // 1.10 Aset Lancar
+        $a1 = $create('1.10', 'Aset Lancar', 'ASSET', $a->id);
+            // 1.10.01 Kas Tunai
+            $a1_1 = $create('1.10.01', 'Kas Tunai', 'ASSET', $a1->id, true);
+                $create('1.10.01.001', 'Kas Operasional Kantor', 'ASSET', $a1_1->id, true);
+                $create('1.10.01.002', 'Kas Kecil', 'ASSET', $a1_1->id, true);
+            // 1.10.02 Bank
+            $a1_2 = $create('1.10.02', 'Bank & Setara Kas', 'ASSET', $a1->id, true);
+                $create('1.10.02.001', 'Bank BSI - Operasional', 'ASSET', $a1_2->id, true);
+                $create('1.10.02.002', 'Bank Muamalat - Pembangunan', 'ASSET', $a1_2->id, true);
+            // 1.10.03 Piutang
+            $a1_3 = $create('1.10.03', 'Piutang & Uang Muka', 'ASSET', $a1->id);
+                $create('1.10.03.001', 'Piutang Anggota/Staf', 'ASSET', $a1_3->id);
         
-        $accounts['kas_tunai'] = FinanceCoa::create([
-            'parent_id' => $kasBank->id, 'code' => '1-1100', 'name' => 'Kas Tunai Operasional', 
-            'type' => 'ASSET', 'is_cash' => true, 'organization_unit_id' => null
-        ]);
-        
-        $accounts['bank_bsi'] = FinanceCoa::create([
-            'parent_id' => $kasBank->id, 'code' => '1-1200', 'name' => 'Bank BSI', 
-            'type' => 'ASSET', 'is_cash' => true, 'organization_unit_id' => null
-        ]);
+        // 1.20 Aset Tetap
+        $a2 = $create('1.20', 'Aset Tetap (Inventaris)', 'ASSET', $a->id);
+            $create('1.20.01', 'Tanah & Bangunan', 'ASSET', $a2->id);
+            $create('1.20.02', 'Kendaraan', 'ASSET', $a2->id);
+            $create('1.20.03', 'Peralatan & Mesin', 'ASSET', $a2->id);
 
-        // 3. EKUITAS (PENTING UNTUK SALDO AWAL)
-        $accounts['modal_awal'] = FinanceCoa::create([
-            'parent_id' => $equity->id, 'code' => '3-1000', 'name' => 'Ekuitas Saldo Awal', 
-            'type' => 'EQUITY', 'organization_unit_id' => null
-        ]);
+        // 2. KEWAJIBAN
+        // 2.10 Kewajiban Pendek
+        $l1 = $create('2.10', 'Kewajiban Jangka Pendek', 'LIABILITY', $l->id);
+            $create('2.10.01', 'Utang Usaha / Kegiatan', 'LIABILITY', $l1->id);
+            // 2.10.02 Titipan Dana (Penting untuk Pusat)
+            $l1_2 = $create('2.10.02', 'Titipan Dana Unit (RAK)', 'LIABILITY', $l1->id);
+                $create('2.10.02.001', 'Titipan Dana PRM', 'LIABILITY', $l1_2->id);
+                $create('2.10.02.002', 'Titipan Dana AUM', 'LIABILITY', $l1_2->id);
+
+        // 3. EKUITAS
+        // 3.10 Tidak Terikat
+        $e1 = $create('3.10', 'Aset Neto Tidak Terikat', 'EQUITY', $e->id);
+            $create('3.10.01.001', 'Saldo Awal', 'EQUITY', $create('3.10.01', 'Saldo Awal Organisasi', 'EQUITY', $e1->id)->id);
+            $create('3.10.02.001', 'Surplus/Defisit Periode Berjalan', 'EQUITY', $create('3.10.02', 'Surplus/Defisit', 'EQUITY', $e1->id)->id);
 
         // 4. PENERIMAAN
-        $zis = FinanceCoa::create(['parent_id' => $rev->id, 'code' => '4-1000', 'name' => 'Penerimaan ZIS', 'type' => 'REVENUE', 'organization_unit_id' => null]);
-        $accounts['infaq'] = FinanceCoa::create([
-            'parent_id' => $zis->id, 'code' => '4-1100', 'name' => 'Infaq Jumat', 
-            'type' => 'REVENUE', 'organization_unit_id' => null
-        ]);
+        // 4.10 Penerimaan Organisasi
+        $r1 = $create('4.10', 'Penerimaan Organisasi', 'REVENUE', $r->id);
+            $create('4.10.01.001', 'Iuran Anggota / SWP', 'REVENUE', $create('4.10.01', 'Iuran & Sumbangan Wajib', 'REVENUE', $r1->id)->id);
+            $create('4.10.02.001', 'Infak Tidak Terikat', 'REVENUE', $create('4.10.02', 'Infak & Sedekah Umum', 'REVENUE', $r1->id)->id);
 
         // 5. PENGELUARAN
-        $ops = FinanceCoa::create(['parent_id' => $exp->id, 'code' => '5-1000', 'name' => 'Beban Operasional', 'type' => 'EXPENSE', 'organization_unit_id' => null]);
-        $accounts['listrik'] = FinanceCoa::create([
-            'parent_id' => $ops->id, 'code' => '5-1100', 'name' => 'Listrik & Air', 
-            'type' => 'EXPENSE', 'organization_unit_id' => null
-        ]);
-        $accounts['konsumsi'] = FinanceCoa::create([
-            'parent_id' => $ops->id, 'code' => '5-1200', 'name' => 'Konsumsi Rapat', 
-            'type' => 'EXPENSE', 'organization_unit_id' => null
-        ]);
-
-        return $accounts;
+        // 5.10 Beban Operasional
+        $x1 = $create('5.10', 'Beban Operasional', 'EXPENSE', $x->id);
+            $x1_1 = $create('5.10.01', 'Beban Kantor', 'EXPENSE', $x1->id);
+                $create('5.10.01.001', 'Listrik, Air & Internet', 'EXPENSE', $x1_1->id);
+                $create('5.10.01.002', 'ATK & Cetak', 'EXPENSE', $x1_1->id);
+                $create('5.10.01.003', 'Konsumsi Rapat', 'EXPENSE', $x1_1->id);
     }
 
-    /**
-     * Simulasi Saldo Awal (Migrasi Sistem)
-     */
-    private function createOpeningBalance($unit, $user, $coas)
+    private function createOpeningBalance($unit, $user, $cashId, $equityId)
     {
-        $date = Carbon::now()->subMonths(1)->startOfMonth(); // 1 Bulan lalu
-        $amount = 15000000; // 15 Juta
-
-        // 1. Header Jurnal
+        $amount = 15000000;
         $journal = FinanceJournal::create([
-            'organization_unit_id' => $unit->id,
-            'user_id' => $user->id,
-            'journal_number' => 'OPB/SEED/' . rand(1000,9999),
-            'transaction_date' => $date,
-            'description' => 'Saldo Awal Migrasi Sistem',
-            'total_amount' => $amount
+            'organization_unit_id' => $unit->id, 'user_id' => $user->id,
+            'journal_number' => 'JV/OPENING/2026', 'transaction_date' => '2026-01-01',
+            'description' => 'Saldo Awal 2026', 'total_amount' => $amount, 'status' => 'POSTED'
         ]);
 
-        // 2. Transaksi UI (Flag is_opening_balance = true)
         FinanceTransaction::create([
-            'organization_unit_id' => $unit->id,
-            'user_id' => $user->id,
-            'journal_id' => $journal->id,
-            'type' => 'INCOME',
-            'date' => $date,
-            'cash_coa_id' => $coas['bank_bsi']->id, // Uang ada di Bank
-            'category_coa_id' => $coas['modal_awal']->id, // Lawannya Modal
-            'amount' => $amount,
-            'description' => 'Saldo Awal Migrasi Sistem',
-            'is_opening_balance' => true, // <--- FITUR BARU
+            'organization_unit_id' => $unit->id, 'user_id' => $user->id, 'journal_id' => $journal->id,
+            'type' => 'INCOME', 'date' => '2026-01-01', 'cash_coa_id' => $cashId, 'category_coa_id' => $equityId,
+            'amount' => $amount, 'description' => 'Saldo Awal Tahun Buku 2026',
+            'is_opening_balance' => true, 'fund_type' => 'UNRESTRICTED'
         ]);
 
-        // 3. Jurnal Detail (Debit: Bank, Kredit: Modal)
-        FinanceJournalDetail::create([
-            'journal_id' => $journal->id,
-            'coa_id' => $coas['bank_bsi']->id,
-            'debit' => $amount,
-            'credit' => 0,
-        ]);
-        FinanceJournalDetail::create([
-            'journal_id' => $journal->id,
-            'coa_id' => $coas['modal_awal']->id,
-            'debit' => 0,
-            'credit' => $amount,
-        ]);
+        FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $cashId, 'debit' => $amount, 'credit' => 0, 'fund_type' => 'UNRESTRICTED']);
+        FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $equityId, 'debit' => 0, 'credit' => $amount, 'fund_type' => 'UNRESTRICTED']);
     }
 
-    /**
-     * Simulasi Transaksi Harian
-     */
-    private function createDailyTransactions($unit, $user, $coas)
+    private function createDailyTransactions($unit, $user)
     {
-        // KASUS 1: Terima Infaq (Income)
-        $this->recordTransaction(
-            $unit, $user, 'INCOME', 500000, 
-            $coas['kas_tunai']->id, $coas['infaq']->id, 
-            'Penerimaan Kotak Infaq Jumat'
-        );
+        // Ambil ID Akun secara dinamis berdasarkan kode baru
+        $kasTunai = FinanceCoa::where('code', '1.10.01.001')->first()->id;
+        $pendapatanInfak = FinanceCoa::where('code', '4.10.02.001')->first()->id;
+        $bebanListrik = FinanceCoa::where('code', '5.10.01.001')->first()->id;
 
-        // KASUS 2: Bayar Listrik (Expense)
-        $this->recordTransaction(
-            $unit, $user, 'EXPENSE', 150000, 
-            $coas['kas_tunai']->id, $coas['listrik']->id, 
-            'Bayar Token Listrik Kantor'
-        );
-    }
+        $transactions = [
+            ['date' => '2026-01-05', 'type' => 'INCOME', 'desc' => 'Infak Jumat', 'amount' => 2500000, 'cash' => $kasTunai, 'cat' => $pendapatanInfak],
+            ['date' => '2026-01-07', 'type' => 'EXPENSE', 'desc' => 'Bayar Token Listrik', 'amount' => 500000, 'cash' => $kasTunai, 'cat' => $bebanListrik],
+        ];
 
-    /**
-     * Helper untuk record transaksi lengkap (Trx + Jurnal + Details)
-     */
-    private function recordTransaction($unit, $user, $type, $amount, $cashId, $categoryId, $desc)
-    {
-        // 1. Jurnal
-        $journal = FinanceJournal::create([
-            'organization_unit_id' => $unit->id,
-            'user_id' => $user->id,
-            'journal_number' => 'JV/' . date('Ymd') . '/' . rand(100,999),
-            'transaction_date' => Carbon::now(),
-            'description' => $desc,
-            'total_amount' => $amount
-        ]);
+        foreach ($transactions as $trx) {
+            $journal = FinanceJournal::create([
+                'organization_unit_id' => $unit->id, 'user_id' => $user->id,
+                'journal_number' => 'JV/'.rand(100,999), 'transaction_date' => $trx['date'],
+                'description' => $trx['desc'], 'total_amount' => $trx['amount'], 'status' => 'POSTED'
+            ]);
 
-        // 2. Transaksi UI
-        FinanceTransaction::create([
-            'organization_unit_id' => $unit->id,
-            'user_id' => $user->id,
-            'journal_id' => $journal->id,
-            'type' => $type,
-            'date' => Carbon::now(),
-            'cash_coa_id' => $cashId,
-            'category_coa_id' => $categoryId,
-            'amount' => $amount,
-            'description' => $desc,
-            'is_opening_balance' => false,
-        ]);
+            FinanceTransaction::create([
+                'organization_unit_id' => $unit->id, 'user_id' => $user->id, 'journal_id' => $journal->id,
+                'type' => $trx['type'], 'date' => $trx['date'], 'cash_coa_id' => $trx['cash'], 'category_coa_id' => $trx['cat'],
+                'amount' => $trx['amount'], 'description' => $trx['desc'], 'fund_type' => 'UNRESTRICTED'
+            ]);
 
-        // 3. Detail Akuntansi
-        if ($type === 'INCOME') {
-            // Debit: Kas, Kredit: Pendapatan
-            FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $cashId, 'debit' => $amount, 'credit' => 0]);
-            FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $categoryId, 'debit' => 0, 'credit' => $amount]);
-        } else {
-            // Debit: Beban, Kredit: Kas
-            FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $categoryId, 'debit' => $amount, 'credit' => 0]);
-            FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $cashId, 'debit' => 0, 'credit' => $amount]);
+            if ($trx['type'] === 'INCOME') {
+                FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $trx['cash'], 'debit' => $trx['amount'], 'credit' => 0]);
+                FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $trx['cat'], 'debit' => 0, 'credit' => $trx['amount']]);
+            } else {
+                FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $trx['cat'], 'debit' => $trx['amount'], 'credit' => 0]);
+                FinanceJournalDetail::create(['journal_id' => $journal->id, 'coa_id' => $trx['cash'], 'debit' => 0, 'credit' => $trx['amount']]);
+            }
         }
     }
 }
