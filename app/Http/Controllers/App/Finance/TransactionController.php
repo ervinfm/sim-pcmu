@@ -283,7 +283,8 @@ class TransactionController extends Controller
 
         if ($user->role !== 'super_admin' && $transaction->organization_unit_id !== $user->organization_unit_id) abort(403);
         
-        if ($this->isPeriodClosed($transaction->organization_unit_id, $transaction->date)) {
+        // [PERBAIKAN] Tukar posisi parameter: ($date, $unitId)
+        if ($this->isPeriodClosed($transaction->date, $transaction->organization_unit_id)) {
             return back()->with('error', 'Gagal: Transaksi ini berada dalam periode yang sudah Tutup Buku.');
         }
 

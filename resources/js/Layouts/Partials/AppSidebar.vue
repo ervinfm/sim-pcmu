@@ -40,18 +40,20 @@ const menuItems = computed(() => [
                 show: canManageMembers.value,
                 activePaths: ['members.*']
             },
-            
-            // [UPDATE] Route Finance + Active Paths
-            // Menu ini akan menyala jika user berada di Transaksi, Akun, Saldo Awal, atau Tutup Buku
-            { 
+                        { 
                 label: 'Manajemen Keuangan', 
                 route: 'finance.transactions.index', 
                 icon: 'pi pi-wallet', 
                 show: true,
                 activePaths: ['finance.*']
             },
-            
-            { label: 'Manajemen Aset', route: 'assets.index', icon: 'pi pi-box', show: true, activePaths: ['assets.*'] },
+            { 
+                label: 'Manajemen Aset', 
+                route: 'assets.index', 
+                icon: 'pi pi-box', 
+                show: true, 
+                activePaths: ['assets.*'] 
+            },
         ]
     },
     {

@@ -7,6 +7,7 @@ use Inertia\Inertia;
 use App\Http\Controllers\Public\HomeController;
 use App\Http\Controllers\Public\PageController;
 use App\Http\Controllers\Public\PostController as PublicPostController;
+use App\Http\Controllers\Public\AssetController as PublicAssetController;
 
 // --- CONTROLLERS: APP (CORE) ---
 use App\Http\Controllers\App\DashboardController;
@@ -23,6 +24,8 @@ use App\Http\Controllers\App\Finance\BudgetController;
 
 // --- CONTROLLERS: ASSETS & MEMBERS ---
 use App\Http\Controllers\App\Assets\AssetController;
+use App\Http\Controllers\App\Assets\AssetReferenceController;
+use App\Http\Controllers\App\Assets\AssetLoanController;
 use App\Http\Controllers\App\Members\MemberController;
 
 // --- CONTROLLERS: ADMIN & REFERENCE ---
@@ -48,6 +51,7 @@ Route::name('public.')->group(function () {
     
     // Berita Publik
     Route::resource('news', PublicPostController::class);
+    Route::get('/inventaris/{id}', [PublicAssetController::class, 'show'])->name('assets.show');
     // Route::get('/news', [PublicPostController::class, 'index'])->name('posts.index');
     // Route::get('/news/{slug}', [PublicPostController::class, 'show'])->name('posts.show');
 });
@@ -102,6 +106,56 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     // MODUL 2: ASET & INVENTARIS
     // =========================================================================
+    Route::prefix('assets')->name('assets.')->group(function () {
+
+        // A. MASTER DATA (Referensi: Satuan & Lokasi)
+        // URL: /assets/references | Route: assets.references.index
+        Route::controller(AssetReferenceController::class)
+            ->prefix('references')
+            ->name('references.')
+            ->group(function() {
+                Route::get('/', 'index')->name('index');
+                
+                // CRUD Unit
+                Route::post('/units', 'storeUnit')->name('units.store');
+                Route::put('/units/{unit}', 'updateUnit')->name('units.update');
+                Route::delete('/units/{unit}', 'destroyUnit')->name('units.destroy');
+                
+                // CRUD Lokasi
+                Route::post('/locations', 'storeLocation')->name('locations.store');
+                Route::put('/locations/{location}', 'updateLocation')->name('locations.update');
+                Route::delete('/locations/{location}', 'destroyLocation')->name('locations.destroy');
+        });
+
+        // B. SIRKULASI (Peminjaman Aset)
+        // URL: /assets/loans/... | Route: assets.loans.index
+        Route::controller(AssetLoanController::class)
+            ->prefix('loans')
+            ->name('loans.')
+            ->group(function() {
+                Route::get('/', 'index')->name('index');
+                Route::get('/create', 'create')->name('create');
+                Route::post('/', 'store')->name('store');
+                Route::get('/{assetLoan}', 'show')->name('show');
+                Route::delete('/{assetLoan}', 'destroy')->name('destroy'); // Hapus/Batalkan
+
+                // Workflow Actions
+                Route::post('/{assetLoan}/checkout', 'checkout')->name('checkout'); // Barang Keluar
+                Route::post('/{assetLoan}/checkin', 'checkin')->name('checkin');   // Barang Masuk
+                Route::post('/{assetLoan}/reject', 'reject')->name('reject');      // Tolak Pengajuan
+                Route::patch('/{assetLoan}/status','changeStatus')->name('change-status');
+        });
+
+        // C. FITUR KHUSUS ASET
+        // Cetak Label QR Code
+        Route::get('/{asset}/print-label', [AssetController::class, 'printLabel'])->name('print-label');
+        Route::post('/print-batch', [AssetController::class, 'printBatch'])->name('print-batch');
+
+    });
+
+    // D. RESOURCE UTAMA ASET (CRUD)
+    // Diletakkan di luar group prefix 'assets' agar URL tetap '/assets' (bukan /assets/assets)
+    // Route Name: assets.index, assets.store, assets.show, dll.
     Route::resource('assets', AssetController::class);
 
 
