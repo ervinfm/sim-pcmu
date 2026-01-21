@@ -285,22 +285,23 @@ class TransactionController extends Controller
         
         // [PERBAIKAN] Tukar posisi parameter: ($date, $unitId)
         if ($this->isPeriodClosed($transaction->date, $transaction->organization_unit_id)) {
-            return back()->with('error', 'Gagal: Transaksi ini berada dalam periode yang sudah Tutup Buku.');
-        }
+            return back()->with('warning', 'Gagal: Transaksi ini berada dalam periode yang sudah Tutup Buku.');
+        }else{
+             DB::beginTransaction();
+            try {
+                if ($transaction->proof_path) Storage::disk('public')->delete($transaction->proof_path);
 
-        DB::beginTransaction();
-        try {
-            if ($transaction->proof_path) Storage::disk('public')->delete($transaction->proof_path);
+                if ($transaction->journal) $transaction->journal->delete(); // Cascade details
+                
+                $transaction->delete();
 
-            if ($transaction->journal) $transaction->journal->delete(); // Cascade details
-            else $transaction->delete();
+                DB::commit();
+                return back()->with('success', 'Transaksi dibatalkan/dihapus.');
 
-            DB::commit();
-            return back()->with('success', 'Transaksi dibatalkan/dihapus.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->with('error', 'Gagal menghapus: ' . $e->getMessage());
+            } catch (\Exception $e) {
+                DB::rollBack();
+                return back()->with('error', 'Gagal menghapus: ' . $e->getMessage());
+            }
         }
     }
 

@@ -4,6 +4,9 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import AssetStatusBadge from './Components/AssetStatusBadge.vue';
 
+import ConfirmPopup from 'primevue/confirmpopup';
+import { useConfirm } from 'primevue/useconfirm';
+
 // PROPS
 const props = defineProps({
     assets: Array,      
@@ -20,6 +23,7 @@ const condition = ref('');
 const currentPage = ref(1);
 const itemsPerPage = 12;
 const viewMode = ref('grid');
+const confirm = useConfirm();
 
 // STATE SELECTION (BATCH PRINT)
 const selectedIds = ref([]);
@@ -107,6 +111,26 @@ const printBatch = () => {
     router.post(route('assets.print-batch'), { 
         ids: selectedIds.value,
         layout: 'A4_STICKER' 
+    });
+};
+
+const confirmDelete = (event, id) => {
+    confirm.require({
+        target: event.currentTarget, // Mengikat popup ke tombol yang diklik
+        message: 'Apakah Anda yakin ingin menghapus aset ini?',
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger p-button-sm',
+        acceptLabel: 'Ya, Hapus',
+        rejectLabel: 'Batal',
+        accept: () => {
+            // Eksekusi hapus via Inertia manual
+            router.delete(route('assets.destroy', id), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    openDropdownId.value = null; // Tutup dropdown setelah berhasil
+                }
+            });
+        }
     });
 };
 
@@ -209,7 +233,7 @@ const printBatch = () => {
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3">
                             <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </span>
-                        <input v-model="search" type="text" placeholder="Cari nama / kode..." class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm transition shadow-sm">
+                        <input v-model="search" type="text" placeholder="Cari nama / kode..." class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm transition shadow-sm">
                     </div>
 
                     <select v-model="category" class="w-full md:w-40 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 shadow-sm cursor-pointer">
@@ -251,7 +275,6 @@ const printBatch = () => {
             <div v-else-if="viewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div v-for="asset in paginatedAssets" 
                      :key="asset.id" 
-                     @click="goToDetail(asset.id)"
                      class="group bg-white rounded-xl shadow-sm hover:shadow-lg border border-gray-100 overflow-hidden transition relative cursor-pointer"
                      :class="{'ring-2 ring-blue-500': selectedIds.includes(asset.id)}"
                 >
@@ -260,7 +283,7 @@ const printBatch = () => {
                     </div>
 
                     <div class="relative h-48 bg-gray-100">
-                        <img :src="getCoverImage(asset)" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+                        <img :src="getCoverImage(asset)" @click="goToDetail(asset.id)" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
                         
                         <div class="absolute top-3 right-3">
                             <AssetStatusBadge :status="asset.status" />
@@ -294,7 +317,14 @@ const printBatch = () => {
                                     <a :href="route('assets.print-label', asset.id)" target="_blank" class="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Cetak QR Code</a>
                                     <div class="border-t border-gray-100 my-1"></div>
                                     <Link :href="route('assets.edit', asset.id)" class="block px-4 py-2 text-sm text-gray-700 hover:bg-yellow-50">Edit Data</Link>
-                                    <Link :href="route('assets.destroy', asset.id)" method="delete" as="button" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50" onclick="return confirm('Hapus aset ini?')">Hapus</Link>
+                                    <ConfirmPopup /> 
+
+                                    <button 
+                                        @click="confirmDelete($event, asset.id)" 
+                                        class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+                                    >
+                                        Hapus
+                                    </button>                                
                                 </div>
                                 <div v-if="openDropdownId === asset.id" @click.stop="openDropdownId = null" class="fixed inset-0 z-40"></div>
                             </div>

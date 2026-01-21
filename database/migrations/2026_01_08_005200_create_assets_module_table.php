@@ -12,128 +12,96 @@ return new class extends Migration
     public function up(): void
     {
         // 1. TABEL SATUAN (Global Reference)
-        // Prefix: asset_
         Schema::create('asset_units', function (Blueprint $table) {
             $table->id();
-            $table->string('code')->unique(); // PCS, UNIT, SET, M2
-            $table->string('name'); // Pieces, Unit, Set, Meter Persegi
+            $table->string('code')->unique(); // PCS, UNIT, SET
+            $table->string('name'); 
             $table->timestamps();
         });
 
         // 2. TABEL LOKASI (Per Unit Organisasi)
-        // Prefix: asset_
         Schema::create('asset_locations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_unit_id')->constrained('organization_units')->onDelete('cascade');
-            
-            $table->string('name'); // Contoh: Gudang Utama, Ruang Guru, Masjid Al-Huda
+            $table->string('name'); 
             $table->text('description')->nullable();
-            
             $table->timestamps();
         });
 
         // 3. TABEL UTAMA ASET
-        // Nama: assets (Plural standar Laravel untuk model Asset)
         Schema::create('assets', function (Blueprint $table) {
             $table->id();
-
-            // A. Identitas Pemilik
             $table->foreignId('organization_unit_id')->constrained('organization_units')->onDelete('cascade');
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete(); // PIC / Pencatat
-
-            // B. Referensi Pendukung (Relasi ke tabel di atas)
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete(); // Pencatat
+            
+            $table->string('inventory_code')->unique(); // INV/001/2024/0001
+            $table->string('name');
+            $table->string('category'); // LAND, BUILDING, VEHICLE, ELECTRONIC...
+            
+            $table->foreignId('asset_unit_id')->constrained('asset_units');
             $table->foreignId('asset_location_id')->nullable()->constrained('asset_locations')->nullOnDelete();
-            $table->foreignId('asset_unit_id')->nullable()->constrained('asset_units')->nullOnDelete();
-
-            // C. Identitas Barang
-            // Format: INV/[UNIT]/[TAHUN]/[NO_URUT]
-            $table->string('inventory_code')->unique(); 
-            $table->string('name'); 
             
-            // D. Kategorisasi Logic
-            // Value: LAND, BUILDING, VEHICLE, ELECTRONIC, FURNITURE, MACHINERY, OTHER
-            $table->string('category')->index(); 
-
-            // E. Spesifikasi Dinamis (JSON)
-            // Menyimpan: Luas (Tanah), Nopol (Kendaraan), Processor (Laptop)
-            $table->json('specifications')->nullable();
-
-            // F. Valuasi & Sumber
-            $table->date('acquisition_date'); 
-            $table->decimal('acquisition_value', 15, 2)->default(0); // Harga Beli
-            $table->decimal('current_value', 15, 2)->nullable(); // Nilai Buku (Penyusutan)
+            $table->date('acquisition_date'); // Tgl Perolehan
+            $table->decimal('acquisition_value', 15, 2); // Nilai Perolehan
+            $table->decimal('current_value', 15, 2)->nullable(); // Nilai Penyusutan (Opsional)
             
-            // Sumber: PURCHASE (Beli), WAKAF (Wakaf), GRANT (Hibah), GOV_AID (Bantuan Pemerintah)
-            $table->string('source_of_acquisition')->default('PURCHASE'); 
-            $table->integer('useful_life_years')->nullable(); // Masa manfaat (tahun)
-
-            // G. Status & Kondisi
-            // Condition: GOOD, SLIGHTLY_DAMAGED (Rusak Ringan), HEAVILY_DAMAGED (Rusak Berat), LOST
-            $table->string('condition')->default('GOOD');
-            // Status: ACTIVE, BORROWED, MAINTENANCE, WRITE_OFF (Dihapuskan), SOLD
-            $table->string('status')->default('ACTIVE');
+            $table->string('source_of_acquisition'); // PURCHASE, GRANT, WAKAF
+            $table->string('condition'); // GOOD, BROKEN, LOST
+            $table->string('status')->default('ACTIVE'); // ACTIVE, WRITE_OFF, AUCTION
             
-            $table->text('description')->nullable(); 
-
+            $table->json('specifications')->nullable(); // Flexible Field (Merk, Seri, Luas, dll)
+            $table->text('description')->nullable(); // Keterangan tambahan
+            
             $table->timestamps();
-            $table->softDeletes(); // Fitur tong sampah (Restoreable)
+            $table->softDeletes();
         });
 
-        // 4. TABEL FOTO ASET (Gallery)
-        // Prefix: asset_
+        // 4. TABEL FOTO ASET
         Schema::create('asset_images', function (Blueprint $table) {
             $table->id();
             $table->foreignId('asset_id')->constrained('assets')->onDelete('cascade');
-            
-            $table->string('image_path'); // Path file
-            $table->boolean('is_primary')->default(false); // Foto sampul
-            $table->string('caption')->nullable(); // Tampak Depan, Samping, dsb
-            
+            $table->string('image_path');
+            $table->boolean('is_primary')->default(false);
             $table->timestamps();
         });
 
-        // 5. TABEL DOKUMEN (Legalitas)
-        // Prefix: asset_
+        // 5. TABEL DOKUMEN ASET (Sertifikat, BPKB, Faktur)
         Schema::create('asset_documents', function (Blueprint $table) {
             $table->id();
             $table->foreignId('asset_id')->constrained('assets')->onDelete('cascade');
-            
+            $table->string('name');
             $table->string('file_path');
-            $table->string('name'); // BPKB, Sertifikat, Faktur
-            $table->string('document_number')->nullable(); // No Seri Dokumen
-            $table->date('expiry_date')->nullable(); // Masa Berlaku (STNK/Pajak)
-            
             $table->timestamps();
         });
 
-        // 6. TABEL PEMINJAMAN ASET (BARU: Fitur Peminjaman)
-        // Prefix: asset_
+        // 6. TABEL PEMINJAMAN (LOAN / SIRKULASI)
         Schema::create('asset_loans', function (Blueprint $table) {
             $table->id();
             $table->foreignId('asset_id')->constrained('assets')->onDelete('cascade');
             
-            // Peminjam: Bisa Internal (User) ATAU Eksternal (Warga)
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete(); 
-            $table->string('borrower_name')->nullable(); // Wajib diisi jika user_id NULL
-            $table->string('borrower_contact')->nullable(); // No WA/HP
+            // --- BAGIAN INI YANG DIPERBAIKI ---
+            // 1. Relasi ke Member (Internal)
+            $table->foreignId('member_id')->nullable()->constrained('members')->nullOnDelete();
             
-            // Tanggal
-            $table->date('loan_date'); // Tgl Pinjam
-            $table->date('return_date_plan'); // Rencana Kembali
-            $table->date('return_date_actual')->nullable(); // Realisasi Kembali
+            // 2. Kolom Tipe Peminjam (WAJIB ADA)
+            $table->string('borrower_type')->default('INTERNAL'); // INTERNAL / EXTERNAL
             
-            // Kondisi Barang (Audit Fisik)
-            $table->string('condition_before')->default('GOOD'); // Kondisi saat keluar
-            $table->string('condition_after')->nullable(); // Kondisi saat kembali
+            // 3. Info Peminjam Eksternal
+            $table->string('borrower_name')->nullable();
+            $table->string('borrower_contact')->nullable();
             
-            // Status Workflow
-            // PENDING (Menunggu ACC), APPROVED (Disetujui), BORROWED (Sedang Dipinjam), 
-            // COMPLETED (Sudah Kembali), REJECTED (Ditolak), OVERDUE (Telat)
+            // Tanggal & Kondisi
+            $table->date('loan_date');
+            $table->date('return_date_plan');
+            $table->date('return_date_actual')->nullable();
+            
+            $table->string('condition_before')->default('GOOD');
+            $table->string('condition_after')->nullable();
+            
             $table->string('status')->default('PENDING'); 
+            $table->text('description')->nullable();
             
-            $table->text('description')->nullable(); // Keperluan: "Untuk Pengajian RT"
-            
-            $table->foreignId('approved_by')->nullable()->constrained('users'); // Admin yang menyetujui
+            $table->foreignId('approved_by')->nullable()->constrained('users');
             
             $table->timestamps();
         });
@@ -144,8 +112,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Urutan Drop Penting: Anak dulu, baru Induk
-        Schema::dropIfExists('asset_loans'); // Hapus Peminjaman dulu
+        Schema::dropIfExists('asset_loans');
         Schema::dropIfExists('asset_documents');
         Schema::dropIfExists('asset_images');
         Schema::dropIfExists('assets');

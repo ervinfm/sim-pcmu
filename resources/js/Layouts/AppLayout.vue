@@ -6,6 +6,8 @@ import AppTopbar from './Partials/AppTopbar.vue';
 import Toast from 'primevue/toast';
 const page = usePage();
 const settings = page.props.site_settings;
+import GlobalNotifications from '@/Components/GlobalNotifications.vue';
+import SessionTimeout from '@/Components/SessionTimeout.vue';
 
 // State Sidebar Mobile
 const isSidebarOpen = ref(false);
@@ -13,13 +15,14 @@ const isSidebarOpen = ref(false);
 
 <template>
     <div class="min-h-screen bg-[#f8fafc] font-sans text-gray-900 flex relative overflow-hidden">
-        
+        <SessionTimeout />
         <div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
             <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-400/5 blur-[120px]"></div>
             <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-400/5 blur-[120px]"></div>
         </div>
 
-        <Toast />
+        <GlobalNotifications />
+        <!-- <Toast /> -->
 
         <aside :class="[
             'fixed inset-y-0 left-0 z-50 w-72 transform transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1)',

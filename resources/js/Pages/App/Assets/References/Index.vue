@@ -3,9 +3,7 @@ import { ref, computed } from 'vue';
 import { Head, useForm, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 
-// PrimeVue Components
-import TabView from 'primevue/tabview';
-import TabPanel from 'primevue/tabpanel';
+// --- PRIMEVUE COMPONENTS ---
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
@@ -13,105 +11,100 @@ import InputText from 'primevue/inputtext';
 import Dialog from 'primevue/dialog';
 import Textarea from 'primevue/textarea';
 import Tag from 'primevue/tag';
+import ConfirmPopup from 'primevue/confirmpopup';
+import { useConfirm } from 'primevue/useconfirm';
 
-// PROPS (Data Mentah dari Controller)
+// PROPS
 const props = defineProps({
     units: Array,
     locations: Array,
 });
 
-// --- STATE: UI & TABS ---
-const activeIndex = ref(0);
+// INIT
+const confirm = useConfirm();
 
-// --- 1. CLIENT-SIDE SEARCH LOGIC (REALTIME) ---
-// Kita tidak perlu request ke server setiap ketik. Filter langsung di browser.
+// --- SEARCH LOGIC ---
 const searchUnit = ref('');
 const searchLocation = ref('');
 
-// Computed Property untuk Filter Satuan
 const filteredUnits = computed(() => {
     if (!searchUnit.value) return props.units;
-    const lowerSearch = searchUnit.value.toLowerCase();
-    return props.units.filter(u => 
-        u.name.toLowerCase().includes(lowerSearch) || 
-        u.code.toLowerCase().includes(lowerSearch)
-    );
+    const q = searchUnit.value.toLowerCase();
+    return props.units.filter(u => u.name.toLowerCase().includes(q) || u.code.toLowerCase().includes(q));
 });
 
-// Computed Property untuk Filter Lokasi
 const filteredLocations = computed(() => {
     if (!searchLocation.value) return props.locations;
-    const lowerSearch = searchLocation.value.toLowerCase();
-    return props.locations.filter(l => 
-        l.name.toLowerCase().includes(lowerSearch) || 
-        (l.description && l.description.toLowerCase().includes(lowerSearch))
-    );
+    const q = searchLocation.value.toLowerCase();
+    return props.locations.filter(l => l.name.toLowerCase().includes(q) || (l.description && l.description.toLowerCase().includes(q)));
 });
 
-// =============================================================================
-// LOGIC CRUD: SATUAN (UNITS)
-// =============================================================================
+// --- HELPER VALIDASI INPUT ---
+// 1. Force Uppercase & No Space (Untuk KODE)
+const handleCodeInput = (event, form, field) => {
+    // Ubah ke Kapital dan Hapus Spasi
+    form[field] = event.target.value.toUpperCase().replace(/\s+/g, '');
+};
+
+// 2. Force Title Case (Untuk NAMA - Opsional jika ingin memaksa huruf besar awal)
+const handleNameInput = (event, form, field) => {
+    // Hanya visual class 'capitalize' biasanya cukup, tapi jika ingin memaksa data:
+    // form[field] = event.target.value.replace(/\b\w/g, l => l.toUpperCase());
+    // Disini kita biarkan input normal tapi visualnya kapital
+};
+
+// --- UNIT LOGIC ---
 const showUnitDialog = ref(false);
 const isEditUnit = ref(false);
 const formUnit = useForm({ id: null, code: '', name: '' });
 
-const openCreateUnit = () => {
-    isEditUnit.value = false;
-    formUnit.reset();
-    showUnitDialog.value = true;
-};
-
-const openEditUnit = (unit) => {
-    isEditUnit.value = true;
-    formUnit.id = unit.id;
-    formUnit.code = unit.code;
-    formUnit.name = unit.name;
-    showUnitDialog.value = true;
-};
+const openCreateUnit = () => { isEditUnit.value = false; formUnit.reset(); showUnitDialog.value = true; };
+const openEditUnit = (unit) => { isEditUnit.value = true; formUnit.id = unit.id; formUnit.code = unit.code; formUnit.name = unit.name; showUnitDialog.value = true; };
 
 const submitUnit = () => {
     const routeName = isEditUnit.value ? 'assets.references.units.update' : 'assets.references.units.store';
     const options = { onSuccess: () => showUnitDialog.value = false };
-    
     if (isEditUnit.value) formUnit.put(route(routeName, formUnit.id), options);
     else formUnit.post(route(routeName), options);
 };
 
-const deleteUnit = (id) => {
-    if (confirm('Hapus satuan ini?')) router.delete(route('assets.references.units.destroy', id));
+const confirmDeleteUnit = (event, id) => {
+    confirm.require({
+        target: event.currentTarget,
+        message: 'Hapus satuan ini?',
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger p-button-sm',
+        acceptLabel: 'Hapus',
+        rejectLabel: 'Batal',
+        accept: () => router.delete(route('assets.references.units.destroy', id))
+    });
 };
 
-// =============================================================================
-// LOGIC CRUD: LOKASI (LOCATIONS)
-// =============================================================================
+// --- LOCATION LOGIC ---
 const showLocDialog = ref(false);
 const isEditLoc = ref(false);
 const formLoc = useForm({ id: null, name: '', description: '' });
 
-const openCreateLoc = () => {
-    isEditLoc.value = false;
-    formLoc.reset();
-    showLocDialog.value = true;
-};
-
-const openEditLoc = (loc) => {
-    isEditLoc.value = true;
-    formLoc.id = loc.id;
-    formLoc.name = loc.name;
-    formLoc.description = loc.description;
-    showLocDialog.value = true;
-};
+const openCreateLoc = () => { isEditLoc.value = false; formLoc.reset(); showLocDialog.value = true; };
+const openEditLoc = (loc) => { isEditLoc.value = true; formLoc.id = loc.id; formLoc.name = loc.name; formLoc.description = loc.description; showLocDialog.value = true; };
 
 const submitLoc = () => {
     const routeName = isEditLoc.value ? 'assets.references.locations.update' : 'assets.references.locations.store';
     const options = { onSuccess: () => showLocDialog.value = false };
-
     if (isEditLoc.value) formLoc.put(route(routeName, formLoc.id), options);
     else formLoc.post(route(routeName), options);
 };
 
-const deleteLoc = (id) => {
-    if (confirm('Hapus lokasi ini? Pastikan kosong.')) router.delete(route('assets.references.locations.destroy', id));
+const confirmDeleteLoc = (event, id) => {
+    confirm.require({
+        target: event.currentTarget,
+        message: 'Hapus lokasi ini?',
+        icon: 'pi pi-exclamation-triangle',
+        acceptClass: 'p-button-danger p-button-sm',
+        acceptLabel: 'Hapus',
+        rejectLabel: 'Batal',
+        accept: () => router.delete(route('assets.references.locations.destroy', id))
+    });
 };
 </script>
 
@@ -119,192 +112,192 @@ const deleteLoc = (id) => {
     <Head title="Data Master Aset" />
 
     <AppLayout>
-        <div class="max-w-7xl mx-auto space-y-8 pb-12">
+        <ConfirmPopup />
+
+        <div class="max-w-7xl mx-auto space-y-6 pb-12">
             
-            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-gray-200 pb-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-200 pb-4">
                 <div>
-                    <h1 class="text-3xl font-bold text-gray-900 tracking-tight">Data Master</h1>
-                    <p class="text-gray-500 mt-1 text-sm">
-                        Pusat pengaturan referensi untuk standarisasi data aset.
-                    </p>
+                    <h1 class="text-3xl font-black text-gray-900 tracking-tight font-sans">
+                        Data Master <span class="text-blue-600">Aset</span>
+                    </h1>
+                    <p class="text-gray-500 mt-1 text-sm">Kelola referensi satuan dan lokasi penyimpanan.</p>
                 </div>
+                <Link :href="route('assets.index')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl text-sm font-bold shadow-sm hover:bg-gray-50 transition flex items-center gap-2">
+                    <i class="pi pi-arrow-left"></i> Kembali
+                </Link>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
-                <div>
-                    <Link :href="route('assets.index')" class="bg-white border border-gray-300 text-gray-700 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-sm hover:bg-gray-50 hover:text-blue-600 transition flex items-center gap-2">
-                        <i class="pi pi-arrow-left"></i>
-                        <span>Kembali ke Aset</span>
-                    </Link>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[600px]">
-                <TabView v-model:activeIndex="activeIndex" class="p-0">
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col h-full overflow-hidden transition-all hover:shadow-xl">
                     
-                    <TabPanel>
-                        <template #header>
-                            <div class="flex items-center gap-2 px-1 py-1">
-                                <i class="pi pi-box"></i>
-                                <span class="font-bold tracking-wide">Satuan Barang</span>
+                    <div class="p-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm">
+                                <i class="pi pi-box text-lg"></i>
                             </div>
-                        </template>
-
-                        <div class="p-6 md:p-8">
-                            <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                                <div class="relative w-full sm:w-72">
-                                    <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                    <input 
-                                        v-model="searchUnit" 
-                                        type="text" 
-                                        placeholder="Cari kode atau nama..." 
-                                        class="w-full pl-10 pr-4 py-2.5 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm transition"
-                                    >
-                                </div>
-                                <Button @click="openCreateUnit" label="Tambah Satuan" icon="pi pi-plus" class="!bg-blue-600 !border-blue-600 !rounded-lg !px-4 !py-2.5 !text-sm !font-bold shadow-md shadow-blue-100 w-full sm:w-auto" />
+                            <div>
+                                <h3 class="font-bold text-gray-800">Satuan Barang</h3>
+                                <p class="text-xs text-gray-500">{{ props.units.length }} Data Tersedia</p>
                             </div>
-
-                            <DataTable :value="filteredUnits" paginator :rows="10" stripedRows tableStyle="min-width: 50rem" class="p-datatable-sm">
-                                <template #empty> 
-                                    <div class="flex flex-col items-center justify-center py-12 text-gray-400">
-                                        <i class="pi pi-inbox text-4xl mb-2 opacity-50"></i>
-                                        <p>Data satuan tidak ditemukan.</p>
-                                    </div> 
-                                </template>
-                                
-                                <Column field="code" header="Kode" sortable style="width: 20%">
-                                    <template #body="slotProps">
-                                        <Tag :value="slotProps.data.code" severity="contrast" class="font-mono text-xs" />
-                                    </template>
-                                </Column>
-                                <Column field="name" header="Nama Satuan" sortable style="width: 60%">
-                                    <template #body="slotProps">
-                                        <span class="font-semibold text-gray-700">{{ slotProps.data.name }}</span>
-                                    </template>
-                                </Column>
-                                <Column header="Aksi" style="width: 20%; text-align: right">
-                                    <template #body="slotProps">
-                                        <div class="flex justify-end gap-2">
-                                            <button @click="openEditUnit(slotProps.data)" class="w-8 h-8 rounded-full bg-yellow-50 text-yellow-600 hover:bg-yellow-100 flex items-center justify-center transition">
-                                                <i class="pi pi-pencil text-xs"></i>
-                                            </button>
-                                            <button @click="deleteUnit(slotProps.data.id)" class="w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition">
-                                                <i class="pi pi-trash text-xs"></i>
-                                            </button>
-                                        </div>
-                                    </template>
-                                </Column>
-                            </DataTable>
                         </div>
-                    </TabPanel>
+                        <Button icon="pi pi-plus" rounded class="!bg-blue-600 !border-blue-600 !w-8 !h-8 !p-0" @click="openCreateUnit" v-tooltip.top="'Tambah Satuan'" />
+                    </div>
 
-                    <TabPanel>
-                        <template #header>
-                            <div class="flex items-center gap-2 px-1 py-1">
-                                <i class="pi pi-map-marker"></i>
-                                <span class="font-bold tracking-wide">Lokasi Penyimpanan</span>
-                            </div>
-                        </template>
-
-                        <div class="p-6 md:p-8">
-                            <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                                <div class="relative w-full sm:w-72">
-                                    <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                    <input 
-                                        v-model="searchLocation" 
-                                        type="text" 
-                                        placeholder="Cari lokasi..." 
-                                        class="w-full pl-10 pr-4 py-2.5 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm transition"
-                                    >
-                                </div>
-                                <Button @click="openCreateLoc" label="Tambah Lokasi" icon="pi pi-plus" class="!bg-blue-600 !border-blue-600 !rounded-lg !px-4 !py-2.5 !text-sm !font-bold shadow-md shadow-blue-100 w-full sm:w-auto" />
-                            </div>
-
-                            <DataTable :value="filteredLocations" paginator :rows="10" stripedRows tableStyle="min-width: 50rem" class="p-datatable-sm">
-                                <template #empty> 
-                                    <div class="flex flex-col items-center justify-center py-12 text-gray-400">
-                                        <i class="pi pi-map text-4xl mb-2 opacity-50"></i>
-                                        <p>Data lokasi tidak ditemukan.</p>
-                                    </div> 
-                                </template>
-
-                                <Column field="name" header="Nama Lokasi" sortable style="width: 30%">
-                                    <template #body="slotProps">
-                                        <span class="font-bold text-gray-800 text-sm">{{ slotProps.data.name }}</span>
-                                    </template>
-                                </Column>
-                                <Column field="organization_unit.name" header="Unit Organisasi" sortable style="width: 25%">
-                                    <template #body="slotProps">
-                                        <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold uppercase tracking-wider">
-                                            {{ slotProps.data.organization_unit?.name || 'GLOBAL' }}
-                                        </span>
-                                    </template>
-                                </Column>
-                                <Column field="description" header="Deskripsi" style="width: 30%">
-                                    <template #body="slotProps">
-                                        <span class="text-gray-500 text-sm truncate block max-w-xs">{{ slotProps.data.description || '-' }}</span>
-                                    </template>
-                                </Column>
-                                <Column header="Aksi" style="width: 15%; text-align: right">
-                                    <template #body="slotProps">
-                                        <div class="flex justify-end gap-2">
-                                            <button @click="openEditLoc(slotProps.data)" class="w-8 h-8 rounded-full bg-yellow-50 text-yellow-600 hover:bg-yellow-100 flex items-center justify-center transition">
-                                                <i class="pi pi-pencil text-xs"></i>
-                                            </button>
-                                            <button @click="deleteLoc(slotProps.data.id)" class="w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition">
-                                                <i class="pi pi-trash text-xs"></i>
-                                            </button>
-                                        </div>
-                                    </template>
-                                </Column>
-                            </DataTable>
+                    <div class="px-5 pt-4 pb-2">
+                        <div class="relative">
+                            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                            <input v-model="searchUnit" type="text" placeholder="Cari satuan..." 
+                                class="w-full pl-9 pr-3 py-2 bg-gray-50 border-none rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all placeholder-gray-400 uppercase">
                         </div>
-                    </TabPanel>
+                    </div>
 
-                </TabView>
+                    <div class="p-2 flex-1">
+                        <DataTable :value="filteredUnits" paginator :rows="5" size="small" class="modern-table">
+                            <template #empty><div class="text-center py-8 text-gray-400 text-sm">Data kosong.</div></template>
+                            
+                            <Column field="code" header="KODE">
+                                <template #body="slotProps">
+                                    <Tag :value="slotProps.data.code" severity="contrast" class="!font-mono !text-[10px] !px-2" />
+                                </template>
+                            </Column>
+                            <Column field="name" header="NAMA">
+                                <template #body="slotProps">
+                                    <span class="font-semibold text-gray-700 text-sm">{{ slotProps.data.name }}</span>
+                                </template>
+                            </Column>
+                            <Column header="" style="width: 80px; text-align: right">
+                                <template #body="slotProps">
+                                    <div class="flex gap-1 justify-end">
+                                        <button @click="openEditUnit(slotProps.data)" class="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 flex items-center justify-center transition">
+                                            <i class="pi pi-pencil text-[10px]"></i>
+                                        </button>
+                                        <button @click="confirmDeleteUnit($event, slotProps.data.id)" class="w-7 h-7 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition">
+                                            <i class="pi pi-trash text-[10px]"></i>
+                                        </button>
+                                    </div>
+                                </template>
+                            </Column>
+                        </DataTable>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-100 flex flex-col h-full overflow-hidden transition-all hover:shadow-xl">
+                    
+                    <div class="p-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
+                                <i class="pi pi-map-marker text-lg"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-800">Lokasi Aset</h3>
+                                <p class="text-xs text-gray-500">{{ props.locations.length }} Data Tersedia</p>
+                            </div>
+                        </div>
+                        <Button icon="pi pi-plus" rounded class="!bg-emerald-600 !border-emerald-600 !w-8 !h-8 !p-0" @click="openCreateLoc" v-tooltip.top="'Tambah Lokasi'" />
+                    </div>
+
+                    <div class="px-5 pt-4 pb-2">
+                        <div class="relative">
+                            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                            <input v-model="searchLocation" type="text" placeholder="Cari ruangan..." 
+                                class="w-full pl-9 pr-3 py-2 bg-gray-50 border-none rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-emerald-100 transition-all placeholder-gray-400 capitalize">
+                        </div>
+                    </div>
+
+                    <div class="p-2 flex-1">
+                        <DataTable :value="filteredLocations" paginator :rows="5" size="small" class="modern-table">
+                            <template #empty><div class="text-center py-8 text-gray-400 text-sm">Data kosong.</div></template>
+                            
+                            <Column field="name" header="NAMA RUANGAN">
+                                <template #body="slotProps">
+                                    <span class="font-bold text-gray-700 text-sm">{{ slotProps.data.name }}</span>
+                                    <div class="text-[10px] text-gray-400 mt-0.5 truncate max-w-[150px]">{{ slotProps.data.organization_unit?.name }}</div>
+                                </template>
+                            </Column>
+                            <Column field="description" header="KET">
+                                <template #body="slotProps">
+                                    <span class="text-gray-500 text-xs truncate max-w-[100px] block" :title="slotProps.data.description">{{ slotProps.data.description || '-' }}</span>
+                                </template>
+                            </Column>
+                            <Column header="" style="width: 80px; text-align: right">
+                                <template #body="slotProps">
+                                    <div class="flex gap-1 justify-end">
+                                        <button @click="openEditLoc(slotProps.data)" class="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 flex items-center justify-center transition">
+                                            <i class="pi pi-pencil text-[10px]"></i>
+                                        </button>
+                                        <button @click="confirmDeleteLoc($event, slotProps.data.id)" class="w-7 h-7 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition">
+                                            <i class="pi pi-trash text-[10px]"></i>
+                                        </button>
+                                    </div>
+                                </template>
+                            </Column>
+                        </DataTable>
+                    </div>
+                </div>
+
             </div>
 
-            <Dialog v-model:visible="showUnitDialog" modal :header="isEditUnit ? 'Edit Satuan' : 'Satuan Baru'" :style="{ width: '400px' }" class="p-fluid">
-                <div class="space-y-5 pt-3">
-                    <div class="space-y-1">
-                        <label class="text-sm font-semibold text-gray-700">Kode Satuan</label>
-                        <InputText v-model="formUnit.code" placeholder="Contoh: PCS" class="!rounded-lg uppercase" :class="{'p-invalid': formUnit.errors.code}" />
-                        <small class="text-gray-400 text-xs">Singkatan unik, maksimal 10 karakter.</small>
-                        <small class="text-red-500 block" v-if="formUnit.errors.code">{{ formUnit.errors.code }}</small>
+            <Dialog v-model:visible="showUnitDialog" modal :header="isEditUnit ? 'Edit Satuan' : 'Satuan Baru'" :style="{ width: '350px' }" class="rounded-2xl">
+                <div class="space-y-4 pt-2">
+                    <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase">
+                            Kode <span class="text-red-500">*</span>
+                        </label>
+                        <InputText 
+                            v-model="formUnit.code" 
+                            @input="(e) => handleCodeInput(e, formUnit, 'code')"
+                            placeholder="CONTOH: PCS" 
+                            class="w-full !rounded-lg mt-1 uppercase font-mono" 
+                            :class="{'p-invalid': formUnit.errors.code}"
+                        />
+                        <small class="text-red-500 text-xs" v-if="formUnit.errors.code">{{ formUnit.errors.code }}</small>
                     </div>
-                    <div class="space-y-1">
-                        <label class="text-sm font-semibold text-gray-700">Nama Satuan</label>
-                        <InputText v-model="formUnit.name" placeholder="Contoh: Pieces" class="!rounded-lg" :class="{'p-invalid': formUnit.errors.name}" />
-                        <small class="text-red-500" v-if="formUnit.errors.name">{{ formUnit.errors.name }}</small>
+                    <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase">
+                            Nama Satuan <span class="text-red-500">*</span>
+                        </label>
+                        <InputText 
+                            v-model="formUnit.name" 
+                            placeholder="Pieces / Unit" 
+                            class="w-full !rounded-lg mt-1 capitalize" 
+                            :class="{'p-invalid': formUnit.errors.name}"
+                        />
+                        <small class="text-red-500 text-xs" v-if="formUnit.errors.name">{{ formUnit.errors.name }}</small>
                     </div>
                 </div>
                 <template #footer>
                     <div class="flex justify-end gap-2 pt-4">
-                        <Button label="Batal" icon="pi pi-times" text class="!text-gray-500" @click="showUnitDialog = false" />
-                        <Button label="Simpan Data" icon="pi pi-check" class="!bg-blue-600 !border-blue-600 !rounded-lg" @click="submitUnit" :loading="formUnit.processing" />
+                        <Button label="Batal" text @click="showUnitDialog = false" class="!text-gray-500 !text-sm" />
+                        <Button label="Simpan" @click="submitUnit" :loading="formUnit.processing" class="!bg-blue-600 !border-none !rounded-lg !text-sm" />
                     </div>
                 </template>
             </Dialog>
 
-            <Dialog v-model:visible="showLocDialog" modal :header="isEditLoc ? 'Edit Lokasi' : 'Lokasi Baru'" :style="{ width: '500px' }" class="p-fluid">
-                <div class="space-y-5 pt-3">
-                    <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-start gap-3">
-                        <i class="pi pi-info-circle text-blue-500 mt-0.5"></i>
-                        <p class="text-xs text-blue-700">Lokasi ini akan terikat dengan Unit Organisasi Anda saat ini.</p>
+            <Dialog v-model:visible="showLocDialog" modal :header="isEditLoc ? 'Edit Lokasi' : 'Lokasi Baru'" :style="{ width: '400px' }" class="rounded-2xl">
+                <div class="space-y-4 pt-2">
+                    <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase">
+                            Nama Ruangan / Lokasi <span class="text-red-500">*</span>
+                        </label>
+                        <InputText 
+                            v-model="formLoc.name" 
+                            placeholder="Contoh: Gudang Belakang" 
+                            class="w-full !rounded-lg mt-1 capitalize" 
+                            :class="{'p-invalid': formLoc.errors.name}"
+                        />
+                        <small class="text-red-500 text-xs" v-if="formLoc.errors.name">{{ formLoc.errors.name }}</small>
                     </div>
-
-                    <div class="space-y-1">
-                        <label class="text-sm font-semibold text-gray-700">Nama Ruangan / Lokasi</label>
-                        <InputText v-model="formLoc.name" placeholder="Contoh: Gudang Belakang" class="!rounded-lg" :class="{'p-invalid': formLoc.errors.name}" />
-                        <small class="text-red-500" v-if="formLoc.errors.name">{{ formLoc.errors.name }}</small>
-                    </div>
-                    <div class="space-y-1">
-                        <label class="text-sm font-semibold text-gray-700">Deskripsi</label>
-                        <Textarea v-model="formLoc.description" rows="3" placeholder="Keterangan detail lokasi..." class="!rounded-lg" />
+                    <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase">Deskripsi</label>
+                        <Textarea v-model="formLoc.description" rows="3" placeholder="Keterangan..." class="w-full !rounded-lg mt-1" />
                     </div>
                 </div>
                 <template #footer>
                     <div class="flex justify-end gap-2 pt-4">
-                        <Button label="Batal" icon="pi pi-times" text class="!text-gray-500" @click="showLocDialog = false" />
-                        <Button label="Simpan Data" icon="pi pi-check" class="!bg-blue-600 !border-blue-600 !rounded-lg" @click="submitLoc" :loading="formLoc.processing" />
+                        <Button label="Batal" text @click="showLocDialog = false" class="!text-gray-500 !text-sm" />
+                        <Button label="Simpan" @click="submitLoc" :loading="formLoc.processing" class="!bg-emerald-600 !border-none !rounded-lg !text-sm" />
                     </div>
                 </template>
             </Dialog>
@@ -314,29 +307,22 @@ const deleteLoc = (id) => {
 </template>
 
 <style scoped>
-/* Styling TabView agar terlihat seperti Navigation Modern */
-:deep(.p-tabview-nav) {
-    background-color: transparent;
-    border-bottom: 1px solid #f3f4f6;
-    padding: 0 1.5rem;
+/* Table Compact Styling */
+:deep(.modern-table .p-datatable-thead > tr > th) {
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f1f5f9;
 }
-:deep(.p-tabview-nav-link) {
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    color: #64748b !important; /* slate-500 */
-    font-weight: 600;
-    padding: 1.25rem 1.5rem !important;
-    transition: all 0.2s;
+:deep(.modern-table .p-datatable-tbody > tr > td) {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f8fafc;
 }
-:deep(.p-tabview-nav-link:hover) {
-    color: #1e293b !important; /* slate-800 */
-}
-:deep(.p-highlight .p-tabview-nav-link) {
-    color: #2563eb !important; /* blue-600 */
-    border-bottom-color: #2563eb !important;
-}
-:deep(.p-tabview-panels) {
-    padding: 0;
+:deep(.p-datatable .p-paginator-bottom) {
+    border-top: 1px solid #f3f4f6;
+    padding: 0.5rem;
 }
 </style>

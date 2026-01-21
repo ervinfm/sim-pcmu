@@ -16,61 +16,33 @@ class OrganizationController extends Controller
 {
     public function index(Request $request)
     {
-        $user = auth()->user();
-        
-        $category = $request->input('tab', 'STRUKTURAL');
-        $search = $request->input('search');
-        $sort = $request->input('sort', 'name');
-
-        // Base Query
-        $query = OrganizationUnit::query()
+        // 1. Ambil SEMUA data (Tanpa Filter Server-side)
+        // Frontend yang akan melakukan filtering
+        $organizations = OrganizationUnit::query()
             ->with(['parent', 'territories'])
-            ->withCount(['members', 'territories']); // Hitung Direct
+            ->withCount(['members', 'territories'])
+            // Eager load children counts untuk perhitungan network
+            ->with(['children' => function($q) {
+                $q->withCount(['members', 'territories']);
+            }])
+            ->orderBy('name', 'asc') // Default sort awal
+            ->get();
 
-        // EAGER LOAD CHILDREN COUNTS (PENTING: Untuk menghitung total gabungan)
-        // Kita load children beserta jumlah member mereka agar bisa dijumlahkan di PHP
-        $query->with(['children' => function($q) {
-            $q->withCount(['members', 'territories']);
-        }]);
-
-        // Filter Category
-        $query->where('category', $category);
-
-        // Filter Search
-        if ($search) {
-            $query->where(function($q) use ($search) {
-                $q->where('name', 'ilike', "%{$search}%")
-                  ->orWhere('sk_number', 'ilike', "%{$search}%")
-                  ->orWhere('type', 'ilike', "%{$search}%")
-                  ->orWhereHas('territories', function($subQ) use ($search) {
-                      $subQ->where('name', 'ilike', "%{$search}%");
-                  });
-            });
-        }
-
-        // Sorting
-        if ($sort === 'newest') {
-            $query->latest();
-        } else {
-            $query->orderBy('name', 'asc');
-        }
-
-        $organizations = $query->paginate(9)->withQueryString();
-
-        // TRANSFORM DATA (Menghitung Total Network)
-        $organizations->getCollection()->transform(function ($org) {
-            // Hitung Total = Milik Sendiri + Milik Anak-anaknya
+        // 2. Transform Data (Hitung Total Network)
+        $organizations->transform(function ($org) {
             $org->network_members_count = $org->members_count + $org->children->sum('members_count');
             $org->network_territories_count = $org->territories_count + $org->children->sum('territories_count');
             return $org;
         });
 
+        // 3. Kirim Full Data ke Frontend
         return Inertia::render('App/Reference/Organizations/Index', [
-            'organizations' => $organizations,
+            'organizations' => $organizations, 
+            // Kirim parameter awal jika ada (opsional, untuk set default state di UI)
             'filters' => [
-                'tab' => $category,
-                'search' => $search,
-                'sort' => $sort
+                'tab' => $request->input('tab', 'STRUKTURAL'),
+                'search' => $request->input('search'),
+                'sort' => $request->input('sort', 'name')
             ]
         ]);
     }
@@ -221,11 +193,30 @@ class OrganizationController extends Controller
 
     public function destroy(OrganizationUnit $organization)
     {
+        // 1. Cek Validasi Relasi (Members)
+        // Karena di database on_delete = restrict, kita harus cek manual
+        $memberCount = $organization->members()->count();
+
+        if ($memberCount > 0) {
+            return back()->with('error', "Gagal menghapus! Unit ini masih memiliki $memberCount anggota aktif. Harap pindahkan atau hapus anggota terlebih dahulu.");
+        }
+
+        // 2. Hapus Logo Fisik jika ada
         if ($organization->logo_path) {
             Storage::disk('public')->delete($organization->logo_path);
         }
-        $organization->delete();
-        return redirect()->route('organizations.index')->with('success', 'Unit dihapus.');
+
+        // 3. Eksekusi Hapus dengan Try-Catch untuk keamanan ekstra
+        try {
+            $organization->delete();
+            return redirect()->route('organizations.index')->with('success', 'Unit organisasi berhasil dihapus.');
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Menangani error constraint lain yang mungkin terlewat (misal: relasi ke tabel lain)
+            if ($e->getCode() == "23000" || $e->getCode() == "23001") {
+                return back()->with('error', 'Gagal menghapus! Data ini sedang digunakan oleh modul lain (Anggota/Keuangan/Arsip).');
+            }
+            return back()->with('error', 'Terjadi kesalahan database: ' . $e->getMessage());
+        }
     }
 
     // ==========================================

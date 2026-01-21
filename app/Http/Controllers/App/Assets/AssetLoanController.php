@@ -17,7 +17,7 @@ class AssetLoanController extends Controller
     {
         $user = auth()->user();
         
-        // Eager Load Member
+        // Eager Load Member agar nama muncul di Index
         $query = AssetLoan::with(['asset.images', 'member', 'approver']); 
 
         if ($user->role !== 'super_admin' && $user->organization_unit_id) {
@@ -26,7 +26,6 @@ class AssetLoanController extends Controller
             });
         }
 
-        // Ambil semua data (Client-side filtering)
         $loans = $query->latest()->get();
 
         return Inertia::render('App/Assets/Loans/Index', [
@@ -38,7 +37,7 @@ class AssetLoanController extends Controller
     {
         $user = auth()->user();
 
-        // 1. Data Aset
+        // 1. Aset Tersedia
         $assets = Asset::with('images')
             ->select('id', 'name', 'inventory_code', 'condition', 'status', 'organization_unit_id')
             ->when($user->role !== 'super_admin', fn($q) => $q->where('organization_unit_id', $user->organization_unit_id))
@@ -56,19 +55,18 @@ class AssetLoanController extends Controller
                 ];
             });
 
-        // 2. Data Member (PERBAIKAN MAPPING SESUAI MIGRATION)
+        // 2. Data Member (Mapping full_name ke nama untuk Frontend)
         $membersRaw = Member::query()
             ->when($user->role !== 'super_admin', fn($q) => $q->where('organization_unit_id', $user->organization_unit_id))
-            ->orderBy('full_name', 'asc') // Order by full_name
+            ->orderBy('full_name', 'asc')
             ->get();
 
         $members = $membersRaw->map(function ($m) {
             return [
                 'id' => (int) $m->id,
-                // MAPPING PENTING: full_name db -> nama frontend
-                'nama' => $m->full_name ?? 'Tanpa Nama', 
+                'nama' => $m->full_name ?? 'Tanpa Nama', // Mapping penting!
                 'nbm' => $m->nbm ?? '-',
-                'no_hp' => $m->phone_number ?? '-' 
+                'no_hp' => $m->phone_number ?? '-'
             ];
         });
 
@@ -95,7 +93,7 @@ class AssetLoanController extends Controller
             ->whereIn('status', ['PENDING', 'APPROVED', 'BORROWED'])
             ->exists();
 
-        if ($isBooked) return back()->with('error', 'Gagal: Aset sedang dipinjam.');
+        if ($isBooked) return back()->with('error', 'Gagal: Aset ini sedang dipinjam.');
 
         $asset = Asset::find($val['asset_id']);
 
@@ -109,7 +107,7 @@ class AssetLoanController extends Controller
                 'loan_date' => $val['loan_date'],
                 'return_date_plan' => $val['return_date_plan'],
                 'condition_before' => $asset->condition,
-                'status' => 'APPROVED', 
+                'status' => 'APPROVED', // Auto-approve jika admin yang input
                 'description' => $val['description'],
                 'approved_by' => auth()->id(),
             ]);
@@ -123,7 +121,7 @@ class AssetLoanController extends Controller
         }
     }
 
-    // METHOD BARU UNTUK UBAH STATUS DI INDEX
+    // FITUR BARU: Update Status Realtime
     public function changeStatus(Request $request, AssetLoan $assetLoan)
     {
         $request->validate(['status' => 'required|in:APPROVED,REJECTED,BORROWED,COMPLETED']);
@@ -143,32 +141,30 @@ class AssetLoanController extends Controller
         
         $assetLoan->update($data);
 
-        return back()->with('success', 'Status peminjaman diperbarui menjadi ' . $status);
-    }
-
-    public function show(AssetLoan $assetLoan)
-    {
-        $assetLoan->load(['asset.images', 'member', 'approver']);
-        return Inertia::render('App/Assets/Loans/Show', ['loan' => $assetLoan]);
+        return back()->with('success', 'Status diperbarui menjadi ' . $status);
     }
 
     public function checkin(Request $request, AssetLoan $assetLoan)
     {
+        // 1. Validasi Input Audit
         $val = $request->validate([
             'return_date_actual' => 'required|date',
-            'condition_after' => 'required|string',
+            'condition_after' => 'required|string', // GOOD, SLIGHTLY_DAMAGED, HEAVILY_DAMAGED, LOST
             'notes' => 'nullable|string'
         ]);
 
         DB::beginTransaction();
         try {
+            // 2. Update Data Peminjaman -> COMPLETED
             $assetLoan->update([
                 'status' => 'COMPLETED',
                 'return_date_actual' => $val['return_date_actual'],
                 'condition_after' => $val['condition_after'],
-                'description' => $assetLoan->description . ($val['notes'] ? "\n[Catatan Balik]: " . $val['notes'] : '')
+                'description' => $assetLoan->description . ($val['notes'] ? "\n[Catatan Kembali]: " . $val['notes'] : '')
             ]);
 
+            // 3. Update Status & Kondisi Aset Induk (Otomatis)
+            // Jika rusak/hilang, status aset jadi MAINTENANCE agar tidak bisa dipinjam orang lain
             $newAssetStatus = 'ACTIVE';
             if (in_array($val['condition_after'], ['HEAVILY_DAMAGED', 'LOST'])) {
                 $newAssetStatus = 'MAINTENANCE'; 
@@ -180,12 +176,18 @@ class AssetLoanController extends Controller
             ]);
 
             DB::commit();
-            return back()->with('success', 'Barang diterima kembali.');
+            return back()->with('success', 'Barang berhasil dikembalikan. Status aset diperbarui.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Gagal: ' . $e->getMessage());
+            return back()->with('error', 'Gagal memproses pengembalian: ' . $e->getMessage());
         }
+    }
+
+    public function show(AssetLoan $assetLoan)
+    {
+        $assetLoan->load(['asset.images', 'member', 'approver']);
+        return Inertia::render('App/Assets/Loans/Show', ['loan' => $assetLoan]);
     }
 
     public function destroy(AssetLoan $assetLoan)

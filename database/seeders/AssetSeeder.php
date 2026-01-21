@@ -9,15 +9,22 @@ use App\Models\AssetLocation;
 use App\Models\AssetLoan;
 use App\Models\OrganizationUnit;
 use App\Models\User;
+use App\Models\Member;
 use Carbon\Carbon;
 
 class AssetSeeder extends Seeder
 {
     public function run(): void
     {
-        // 1. SETUP SATUAN BARANG (Global)
-        $this->command->info('1. Seeding Satuan Barang...');
-        $units = [
+        $this->command->info('🚀 Memulai Seeding Aset Muhammadiyah Muara Aman (Fixed Structure)...');
+
+        // ---------------------------------------------------------
+        // 1. SETUP GLOBAL DATA
+        // ---------------------------------------------------------
+        $admin = User::first();
+        
+        // Buat Satuan Barang
+        $unitsData = [
             ['code' => 'UNIT', 'name' => 'Unit'],
             ['code' => 'PCS',  'name' => 'Pieces (Pcs)'],
             ['code' => 'SET',  'name' => 'Set / Paket'],
@@ -26,9 +33,9 @@ class AssetSeeder extends Seeder
             ['code' => 'LBR',  'name' => 'Lembar'],
             ['code' => 'RIM',  'name' => 'Rim'],
             ['code' => 'BOX',  'name' => 'Box / Dus'],
+            ['code' => 'EXM',  'name' => 'Eksemplar'],
         ];
-
-        foreach ($units as $u) {
+        foreach ($unitsData as $u) {
             AssetUnit::firstOrCreate(['code' => $u['code']], $u);
         }
         
@@ -37,299 +44,197 @@ class AssetSeeder extends Seeder
         $uPcs  = AssetUnit::where('code', 'PCS')->first()->id;
         $uSet  = AssetUnit::where('code', 'SET')->first()->id;
         $uM2   = AssetUnit::where('code', 'M2')->first()->id;
-        $uBox  = AssetUnit::where('code', 'BOX')->first()->id;
 
-        // User Default (Admin)
-        $admin = User::first(); 
+        // ---------------------------------------------------------
+        // 2. SETUP STRUKTUR ORGANISASI (SESUAI MIGRATION)
+        // ---------------------------------------------------------
         
-        // ==========================================================
-        // SKENARIO 1: PCM (Struktural - Aset Bernilai Tinggi)
-        // ==========================================================
-        $this->command->info('2. Seeding Aset PCM (Kantor & Lahan)...');
-        
+        // A. PCM (INDUK)
         $pcm = OrganizationUnit::firstOrCreate(
-            ['code' => 'PCM-01'], 
-            ['name' => 'PCM Kartasura', 'type' => 'PCM', 'category' => 'STRUKTURAL']
+            ['code' => 'PCM-MA'],
+            [
+                'name' => 'Pimpinan Cabang Muhammadiyah Muara Aman', 
+                'category' => 'STRUKTURAL', // Ganti 'level' jadi 'category'
+                'type' => 'PCM',            // Ganti 'level' jadi 'type'
+                'parent_id' => null
+            ]
         );
         
-        $locPcmKantor = AssetLocation::firstOrCreate(['organization_unit_id' => $pcm->id, 'name' => 'Kantor Sekretariat PCM']);
-        $locPcmLahan = AssetLocation::firstOrCreate(['organization_unit_id' => $pcm->id, 'name' => 'Lahan Pengembangan']);
-        $locPcmArsip = AssetLocation::firstOrCreate(['organization_unit_id' => $pcm->id, 'name' => 'Ruang Arsip']);
-
-        // 1. Tanah Wakaf
-        Asset::create([
-            'organization_unit_id' => $pcm->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locPcmLahan->id, 'asset_unit_id' => $uM2,
-            'inventory_code' => 'INV/PCM/2020/LAND/001',
-            'name' => 'Tanah Wakaf H. Ahmad Dahlan',
-            'category' => 'LAND',
-            'specifications' => ['luas' => '2500 m2', 'legalitas' => 'Sertifikat Wakaf (AIW)', 'nomor_sertifikat' => '12.34.56.78.9.001'],
-            'acquisition_date' => '2020-01-01', 'acquisition_value' => 5000000000,
-            'source_of_acquisition' => 'WAKAF', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // 2. Gedung Dakwah
-        Asset::create([
-            'organization_unit_id' => $pcm->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locPcmLahan->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PCM/2021/BLD/001',
-            'name' => 'Gedung Dakwah Muhammadiyah',
-            'category' => 'BUILDING',
-            'specifications' => ['luas_bangunan' => '800 m2', 'jumlah_lantai' => 2, 'imb' => 'IMB-99823'],
-            'acquisition_date' => '2021-05-20', 'acquisition_value' => 2500000000,
-            'source_of_acquisition' => 'WAKAF', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // 3. Mobil Dakwah
-        Asset::create([
-            'organization_unit_id' => $pcm->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locPcmKantor->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PCM/2023/VEH/001',
-            'name' => 'Toyota Innova Reborn (Mobil Dakwah)',
-            'category' => 'VEHICLE',
-            'specifications' => ['nopol' => 'AD 1912 MU', 'merk' => 'Toyota', 'tipe' => 'Innova G Diesel'],
-            'acquisition_date' => '2023-05-10', 'acquisition_value' => 450000000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // 4. Laptop Admin (Rusak Ringan)
-        Asset::create([
-            'organization_unit_id' => $pcm->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locPcmKantor->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PCM/2022/ELC/001',
-            'name' => 'Laptop ASUS Vivobook Admin',
-            'category' => 'ELECTRONIC',
-            'specifications' => ['brand' => 'ASUS', 'processor' => 'Ryzen 5', 'ram' => '8GB'],
-            'acquisition_date' => '2022-02-15', 'acquisition_value' => 8500000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'SLIGHTLY_DAMAGED', 'status' => 'ACTIVE',
-            'description' => 'Layar ada deadpixel di pojok kanan.'
-        ]);
-
-        // 5. Lemari Arsip Besi
-        Asset::create([
-            'organization_unit_id' => $pcm->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locPcmArsip->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PCM/2019/FUR/001',
-            'name' => 'Lemari Arsip Besi Tahan Api',
-            'category' => 'FURNITURE',
-            'specifications' => ['bahan' => 'Besi Baja', 'ukuran' => 'Large', 'kunci' => 'Digital'],
-            'acquisition_date' => '2019-11-10', 'acquisition_value' => 4500000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // ==========================================================
-        // SKENARIO 2: SEKOLAH (Bulk Data - 15 PC Lab)
-        // ==========================================================
-        $this->command->info('3. Seeding Aset Sekolah (Bulk Data PC Lab)...');
-
-        $smk = OrganizationUnit::firstOrCreate(
-            ['code' => 'SMK-MUH1'],
-            ['name' => 'SMK Muhammadiyah 1', 'type' => 'SMK', 'category' => 'AUM']
+        $locGudangPCM = AssetLocation::firstOrCreate(
+            ['organization_unit_id' => $pcm->id, 'name' => 'Gudang Inventaris PCM'],
+            ['description' => 'Penyimpanan aset umum cabang']
         );
-        $locLab = AssetLocation::firstOrCreate(['organization_unit_id' => $smk->id, 'name' => 'Lab Komputer RPL']);
-        $locGuru = AssetLocation::firstOrCreate(['organization_unit_id' => $smk->id, 'name' => 'Ruang Guru']);
 
-        // 6-20. Bulk Insert 15 PC
-        for ($i = 1; $i <= 15; $i++) {
-            $nomor = str_pad($i, 3, '0', STR_PAD_LEFT);
-            Asset::create([
-                'organization_unit_id' => $smk->id,
-                'user_id' => $admin?->id,
-                'asset_location_id' => $locLab->id,
-                'asset_unit_id' => $uUnit,
-                'inventory_code' => "INV/SMK/2024/ELC/PC-{$nomor}",
-                'name' => "PC Lab Client {$nomor}",
-                'category' => 'ELECTRONIC',
-                'specifications' => ['processor' => 'Intel Core i5 Gen 12', 'ram' => '16 GB', 'storage' => 'SSD 512GB'],
-                'acquisition_date' => '2024-01-15',
-                'acquisition_value' => 7500000,
-                'source_of_acquisition' => 'GOVERNMENT_AID',
-                'condition' => 'GOOD',
-                'status' => 'ACTIVE'
-            ]);
+        // B. SETUP MEMBER DUMMY
+        $member1 = Member::firstOrCreate(['nbm' => '1001'], ['full_name' => 'Ketua PCM (Dummy)', 'organization_unit_id' => $pcm->id, 'phone_number' => '081111', 'gender'=>'L', 'birth_place'=>'Lebong', 'birth_date'=>'1980-01-01', 'address'=>'-', 'status'=>'ACTIVE']);
+        $member2 = Member::firstOrCreate(['nbm' => '1002'], ['full_name' => 'Sekretaris Kokam (Dummy)', 'organization_unit_id' => $pcm->id, 'phone_number' => '082222', 'gender'=>'L', 'birth_place'=>'Lebong', 'birth_date'=>'1990-01-01', 'address'=>'-', 'status'=>'ACTIVE']);
+
+        // ---------------------------------------------------------
+        // 3. GENERATE ASET PER UNIT (AUM & ORTOM)
+        // ---------------------------------------------------------
+
+        // === 1. MASJID AL JIHAD MUARA AMAN ===
+        $masjid = OrganizationUnit::firstOrCreate(
+            ['name' => 'Masjid Al Jihad Muara Aman'],
+            ['code' => 'MSJ-JIHAD', 'category' => 'AUM', 'type' => 'MASJID', 'parent_id' => $pcm->id]
+        );
+        $locMasjid = AssetLocation::firstOrCreate(['organization_unit_id' => $masjid->id, 'name' => 'Ruang Utama']);
+        
+        $this->createAsset($masjid, $locMasjid, $uM2, 'LAND', 'Tanah Wakaf Masjid Al Jihad', 'INV/MSJ/2010/LND/001', 
+            ['luas' => 1500, 'status_tanah' => 'Wakaf', 'lokasi' => 'Jl. Kampung Jawa'], 2000000000, 'WAKAF');
+
+        // === 2. KL LAZISMU ===
+        $lazismu = OrganizationUnit::firstOrCreate(
+            ['name' => 'KL Lazismu Muara Aman'],
+            ['code' => 'KL-LAZIS', 'category' => 'AUM', 'type' => 'LAZISMU', 'parent_id' => $pcm->id]
+        );
+        $locLazis = AssetLocation::firstOrCreate(['organization_unit_id' => $lazismu->id, 'name' => 'Kantor Operasional']);
+        
+        $ambulans = $this->createAsset($lazismu, $locLazis, $uUnit, 'VEHICLE', 'Ambulans Lazismu', 'INV/LAZIS/2022/VEH/001', 
+            ['nopol' => 'BD 9999 MU', 'merk' => 'Daihatsu', 'tipe' => 'Grand Max'], 250000000, 'WAKAF');
+
+        // === 3. SMKS 6 MUHAMMADIYAH ===
+        $smk = OrganizationUnit::firstOrCreate(
+            ['name' => 'SMKS 6 Muhammadiyah'],
+            ['code' => 'SMK-6', 'category' => 'AUM', 'type' => 'SMK', 'parent_id' => $pcm->id]
+        );
+        $locLabSmk = AssetLocation::firstOrCreate(['organization_unit_id' => $smk->id, 'name' => 'Lab Komputer']);
+        $this->createAsset($smk, $locLabSmk, $uUnit, 'ELECTRONIC', 'Server UNBK', 'INV/SMK6/2021/ELE/002', [], 25000000, 'PURCHASE');
+
+        // === 4. SMP MUHAMMADIYAH 05 ===
+        $smp = OrganizationUnit::firstOrCreate(
+            ['name' => 'SMP Muhammadiyah 05'],
+            ['code' => 'SMP-05', 'category' => 'AUM', 'type' => 'SMP', 'parent_id' => $pcm->id]
+        );
+        $locKelasSmp = AssetLocation::firstOrCreate(['organization_unit_id' => $smp->id, 'name' => 'Ruang Kelas 7']);
+        $this->createAsset($smp, $locKelasSmp, $uSet, 'FURNITURE', 'Meja Kursi Siswa (30 Set)', 'INV/SMP5/2022/FUR/001', [], 15000000, 'PURCHASE');
+
+        // === 5. TK ABA ===
+        $tk1 = OrganizationUnit::firstOrCreate(['name' => 'TK ABA 1'], ['code' => 'TK-ABA1', 'category' => 'AUM', 'type' => 'TK', 'parent_id' => $pcm->id]);
+        $locTk1 = AssetLocation::firstOrCreate(['organization_unit_id' => $tk1->id, 'name' => 'Area Bermain']);
+        $this->createAsset($tk1, $locTk1, $uSet, 'OTHER', 'Playground Outdoor', 'INV/ABA1/2020/OTH/001', [], 5000000, 'PURCHASE');
+
+        $tk6 = OrganizationUnit::firstOrCreate(['name' => 'TK ABA 6'], ['code' => 'TK-ABA6', 'category' => 'AUM', 'type' => 'TK', 'parent_id' => $pcm->id]);
+
+        // === 6. ORTOM SPESIFIK ===
+        
+        // UKL TSPM (TAPAK SUCI)
+        $tspm = OrganizationUnit::firstOrCreate(
+            ['name' => 'UKL TSPM Muara Aman'],
+            ['code' => 'TSPM-MA', 'category' => 'ORTOM', 'type' => 'TAPAK_SUCI', 'parent_id' => $pcm->id]
+        );
+        $locSanggar = AssetLocation::firstOrCreate(['organization_unit_id' => $tspm->id, 'name' => 'Sanggar Latihan']);
+        $matras = $this->createAsset($tspm, $locSanggar, $uM2, 'OTHER', 'Matras Gelanggang', 'INV/TSPM/2023/OTH/001', [], 8000000, 'PURCHASE');
+
+        // HIZBUL WATHON (HW)
+        $hw = OrganizationUnit::firstOrCreate(
+            ['name' => 'Hizbul Wathon Muara Aman'],
+            ['code' => 'HW-MA', 'category' => 'ORTOM', 'type' => 'HW', 'parent_id' => $pcm->id]
+        );
+        $locHw = AssetLocation::firstOrCreate(['organization_unit_id' => $hw->id, 'name' => 'Gudang HW']);
+        $tenda = $this->createAsset($hw, $locHw, $uSet, 'OTHER', 'Tenda Regu', 'INV/HW/2022/OTH/001', [], 7500000, 'PURCHASE');
+        $drumband = $this->createAsset($hw, $locHw, $uSet, 'OTHER', 'Peralatan Drumband', 'INV/HW/2019/OTH/002', [], 20000000, 'PURCHASE', 'SLIGHTLY_DAMAGED');
+
+        // ORTOM LAINNYA (PCA, PCPM, PCNA, IMM, IPM)
+        $ortomList = [
+            ['name' => 'PCA. Muara Aman',  'type' => 'AISYIYAH', 'code' => 'PCA-MA'],
+            ['name' => 'PCPM. Muara Aman', 'type' => 'PEMUDA',   'code' => 'PCPM-MA'],
+            ['name' => 'PCNA. Muara Aman', 'type' => 'NA',       'code' => 'PCNA-MA'],
+            ['name' => 'IMM',              'type' => 'IMM',      'code' => 'IMM-MA'],
+            ['name' => 'IPM Muara Aman',   'type' => 'IPM',      'code' => 'IPM-MA'],
+        ];
+
+        foreach ($ortomList as $o) {
+            $org = OrganizationUnit::firstOrCreate(
+                ['name' => $o['name']],
+                ['code' => $o['code'], 'category' => 'ORTOM', 'type' => $o['type'], 'parent_id' => $pcm->id]
+            );
+            $loc = AssetLocation::firstOrCreate(['organization_unit_id' => $org->id, 'name' => 'Sekretariat']);
+            $this->createAsset($org, $loc, $uSet, 'FURNITURE', 'Meja Rapat', 'INV/'.$o['code'].'/2023/FUR/001', [], 3000000, 'PURCHASE');
         }
 
-        // 21. AC Ruang Guru (Rusak Berat / Broken)
-        Asset::create([
-            'organization_unit_id' => $smk->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locGuru->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/SMK/2018/ELC/AC01',
-            'name' => 'AC Panasonic 2PK',
-            'category' => 'ELECTRONIC',
-            'specifications' => ['brand' => 'Panasonic', 'pk' => '2 PK'],
-            'acquisition_date' => '2018-05-05', 'acquisition_value' => 5500000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'HEAVILY_DAMAGED', 'status' => 'BROKEN',
-            'description' => 'Kompresor mati total, rencana dihapuskan.'
-        ]);
-
-        // ==========================================================
-        // SKENARIO 3: KLINIK (Maintenance & Write Off)
-        // ==========================================================
-        $this->command->info('4. Seeding Aset Klinik (Maintenance)...');
-
-        $klinik = OrganizationUnit::firstOrCreate(
-            ['code' => 'KLINIK-01'],
-            ['name' => 'Klinik PKU Muhammadiyah', 'type' => 'KLINIK', 'category' => 'AUM']
-        );
-        $locUgd = AssetLocation::firstOrCreate(['organization_unit_id' => $klinik->id, 'name' => 'IGD']);
-        $locGenset = AssetLocation::firstOrCreate(['organization_unit_id' => $klinik->id, 'name' => 'Ruang Genset']);
-
-        // 22. Ambulans (Sedang Service)
-        Asset::create([
-            'organization_unit_id' => $klinik->id, 'user_id' => $admin?->id,
-            'asset_location_id' => null, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PKU/2021/VEH/001',
-            'name' => 'Ambulans Lazismu (APV)',
-            'category' => 'VEHICLE',
-            'specifications' => ['nopol' => 'B 1912 LAZ', 'merk' => 'Suzuki APV'],
-            'acquisition_date' => '2021-12-01', 'acquisition_value' => 220000000,
-            'source_of_acquisition' => 'WAKAF', 'condition' => 'SLIGHTLY_DAMAGED', 'status' => 'MAINTENANCE',
-            'description' => 'Sedang ganti oli dan kampas rem di Bengkel Sejahtera.'
-        ]);
-
-        // 23. Genset Besar
-        Asset::create([
-            'organization_unit_id' => $klinik->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locGenset->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PKU/2020/MCH/001',
-            'name' => 'Genset Silent Perkins 60 kVA',
-            'category' => 'MACHINERY',
-            'specifications' => ['brand' => 'Perkins', 'kapasitas' => '60 kVA', 'bahan_bakar' => 'Solar'],
-            'acquisition_date' => '2020-03-10', 'acquisition_value' => 180000000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // 24. Alat USG Lama (Write Off / Dihapuskan)
-        Asset::create([
-            'organization_unit_id' => $klinik->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locUgd->id, 'asset_unit_id' => $uUnit,
-            'inventory_code' => 'INV/PKU/2010/MED/001',
-            'name' => 'USG 2D Mindray Old',
-            'category' => 'MACHINERY',
-            'specifications' => ['brand' => 'Mindray', 'tipe' => '2D BW'],
-            'acquisition_date' => '2010-01-01', 'acquisition_value' => 80000000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'HEAVILY_DAMAGED', 'status' => 'WRITE_OFF',
-            'description' => 'Sudah tidak layak pakai, diganti alat baru.'
-        ]);
-
-        // ==========================================================
-        // SKENARIO 4: MASJID (Peminjaman Warga & Internal)
-        // ==========================================================
-        $this->command->info('5. Seeding Aset Masjid (Peminjaman)...');
-
-        $masjid = OrganizationUnit::firstOrCreate(
-            ['code' => 'MSJ-RAYA'],
-            ['name' => 'Masjid Raya Al-Huda', 'type' => 'MASJID', 'category' => 'AUM']
-        );
-        $locGudangMasjid = AssetLocation::firstOrCreate(['organization_unit_id' => $masjid->id, 'name' => 'Gudang Perlengkapan']);
-        $locUtama = AssetLocation::firstOrCreate(['organization_unit_id' => $masjid->id, 'name' => 'Ruang Utama']);
-
-        // 25. Tenda (Dipinjam Warga)
-        $tenda = Asset::create([
-            'organization_unit_id' => $masjid->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locGudangMasjid->id, 'asset_unit_id' => $uSet,
-            'inventory_code' => 'INV/MSJ/2023/FUR/001',
-            'name' => 'Tenda Kajian 4x6 Meter',
-            'category' => 'FURNITURE',
-            'specifications' => ['warna' => 'Biru Putih', 'rangka' => 'Besi Pipa'],
-            'acquisition_date' => '2023-01-01', 'acquisition_value' => 3500000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'GOOD', 'status' => 'BORROWED'
-        ]);
+        // ---------------------------------------------------------
+        // 4. SIMULASI PEMINJAMAN (LOAN)
+        // ---------------------------------------------------------
         
+        // 1. Ambulans Lazismu dipinjam PCPM (Status: BORROWED/Aktif)
+        AssetLoan::create([
+            'asset_id' => $ambulans->id,
+            'member_id' => $member1->id,
+            'borrower_type' => 'INTERNAL',
+            'loan_date' => Carbon::now()->subDays(1),
+            'return_date_plan' => Carbon::now()->addDays(1),
+            'condition_before' => 'GOOD',
+            'status' => 'BORROWED',
+            'description' => 'Siaga Kesehatan Kegiatan Pemuda',
+            'approved_by' => $admin?->id
+        ]);
+
+        // 2. Tenda HW dipinjam (Status: COMPLETED/Selesai)
         AssetLoan::create([
             'asset_id' => $tenda->id,
-            'user_id' => null, // Eksternal
-            'borrower_name' => 'Bapak Hartono (RT 05)', 'borrower_contact' => '081234567890',
-            'loan_date' => Carbon::now()->subDays(1), 'return_date_plan' => Carbon::now()->addDays(2),
-            'condition_before' => 'GOOD', 'status' => 'BORROWED', 'description' => 'Kerja bakti kampung', 'approved_by' => $admin?->id
+            'member_id' => $member2->id,
+            'borrower_type' => 'INTERNAL',
+            'loan_date' => Carbon::now()->subMonth(1),
+            'return_date_plan' => Carbon::now()->subMonth(1)->addDays(3),
+            'return_date_actual' => Carbon::now()->subMonth(1)->addDays(3),
+            'condition_before' => 'GOOD',
+            'condition_after' => 'GOOD',
+            'status' => 'COMPLETED',
+            'description' => 'Kegiatan Perkemahan Sabtu Minggu',
+            'approved_by' => $admin?->id
         ]);
 
-        // 26. Sound System
-        Asset::create([
-            'organization_unit_id' => $masjid->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locUtama->id, 'asset_unit_id' => $uSet,
-            'inventory_code' => 'INV/MSJ/2024/ELC/001',
-            'name' => 'Paket Sound System TOA',
-            'category' => 'ELECTRONIC',
-            'specifications' => ['amplifier' => 'TOA ZA-2240', 'speaker' => '4 Column'],
-            'acquisition_date' => '2024-03-01', 'acquisition_value' => 12000000,
-            'source_of_acquisition' => 'WAKAF', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // 27. Karpet (Gulungan)
-        Asset::create([
-            'organization_unit_id' => $masjid->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locGudangMasjid->id, 'asset_unit_id' => $uBox,
-            'inventory_code' => 'INV/MSJ/2024/OTH/005',
-            'name' => 'Karpet Cadangan Turki',
-            'category' => 'OTHER',
-            'specifications' => ['motif' => 'Hijau Polos', 'ketebalan' => '12mm'],
-            'acquisition_date' => '2024-01-01', 'acquisition_value' => 5000000,
-            'source_of_acquisition' => 'WAKAF', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
-        // ==========================================================
-        // SKENARIO 5: ORTOM (Peminjaman Overdue)
-        // ==========================================================
-        $this->command->info('6. Seeding Aset Ortom (Overdue & History)...');
-
-        $ortom = OrganizationUnit::firstOrCreate(
-            ['code' => 'TS-01'],
-            ['name' => 'Pimda Tapak Suci 01', 'type' => 'TAPAK_SUCI', 'category' => 'ORTOM']
-        );
-        $locSanggar = AssetLocation::firstOrCreate(['organization_unit_id' => $ortom->id, 'name' => 'Sanggar Latihan']);
-
-        // 28. Body Protector (Overdue/Telat)
-        $protector = Asset::create([
-            'organization_unit_id' => $ortom->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locSanggar->id, 'asset_unit_id' => $uPcs,
-            'inventory_code' => 'INV/TS/2023/EQP/001',
-            'name' => 'Body Protector (Merah)',
-            'category' => 'OTHER',
-            'specifications' => ['merk' => 'Hokido', 'ukuran' => 'L'],
-            'acquisition_date' => '2023-06-01', 'acquisition_value' => 450000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'GOOD', 'status' => 'BORROWED'
-        ]);
-        
+        // 3. Matras Tapak Suci dipinjam External (Karang Taruna) (Status: OVERDUE/Telat)
         AssetLoan::create([
-            'asset_id' => $protector->id, 'user_id' => $admin?->id, // Internal
-            'loan_date' => Carbon::now()->subDays(10), 'return_date_plan' => Carbon::now()->subDays(3), // Harusnya balik 3 hari lalu
-            'condition_before' => 'GOOD', 'status' => 'OVERDUE', 
-            'description' => 'Kejurnas Solo (Belum kembali)', 'approved_by' => $admin?->id
+            'asset_id' => $matras->id,
+            'borrower_type' => 'EXTERNAL',
+            'borrower_name' => 'Karang Taruna Desa',
+            'borrower_contact' => '08123456789',
+            'loan_date' => Carbon::now()->subDays(5),
+            'return_date_plan' => Carbon::now()->subDays(2), // Harusnya balik 2 hari lalu
+            'condition_before' => 'GOOD',
+            'status' => 'BORROWED',
+            'description' => 'Latihan gabungan desa',
+            'approved_by' => $admin?->id
         ]);
 
-        // 29. Samsak (History Peminjaman Selesai)
-        $samsak = Asset::create([
-            'organization_unit_id' => $ortom->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locSanggar->id, 'asset_unit_id' => $uPcs,
-            'inventory_code' => 'INV/TS/2022/EQP/002',
-            'name' => 'Samsak Gantung 1 Meter',
-            'category' => 'OTHER',
-            'specifications' => ['berat' => '50kg', 'bahan' => 'Kulit Sintetis'],
-            'acquisition_date' => '2022-01-10', 'acquisition_value' => 850000,
-            'source_of_acquisition' => 'PURCHASE', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
-
+        // 4. Drumband HW diajukan untuk pawai (Status: PENDING)
         AssetLoan::create([
-            'asset_id' => $samsak->id, 'user_id' => $admin?->id,
-            'loan_date' => Carbon::now()->subMonth(1), 'return_date_plan' => Carbon::now()->subMonth(1)->addDays(5),
-            'return_date_actual' => Carbon::now()->subMonth(1)->addDays(5),
-            'condition_before' => 'GOOD', 'condition_after' => 'GOOD',
-            'status' => 'COMPLETED', 'description' => 'Latihan Gabungan', 'approved_by' => $admin?->id
+            'asset_id' => $drumband->id,
+            'member_id' => $member1->id,
+            'borrower_type' => 'INTERNAL',
+            'loan_date' => Carbon::now()->addDays(2),
+            'return_date_plan' => Carbon::now()->addDays(3),
+            'condition_before' => 'SLIGHTLY_DAMAGED',
+            'status' => 'PENDING',
+            'description' => 'Pawai Taaruf Musycab',
+            'approved_by' => null
         ]);
 
-        // 30. Matras
-        Asset::create([
-            'organization_unit_id' => $ortom->id, 'user_id' => $admin?->id,
-            'asset_location_id' => $locSanggar->id, 'asset_unit_id' => $uM2,
-            'inventory_code' => 'INV/TS/2023/EQP/005',
-            'name' => 'Matras Puzzle Eva Foam',
-            'category' => 'OTHER',
-            'specifications' => ['ketebalan' => '3cm', 'warna' => 'Merah Biru', 'jumlah_keping' => '100'],
-            'acquisition_date' => '2023-08-17', 'acquisition_value' => 3000000,
-            'source_of_acquisition' => 'GRANT', 'condition' => 'GOOD', 'status' => 'ACTIVE'
-        ]);
+        $this->command->info('✅ Database Aset Muhammadiyah Muara Aman Berhasil Diisi!');
+    }
 
-        $this->command->info('✅ Asset Seeding Complete! Total: 30 Aset + History Peminjaman.');
+    private function createAsset($org, $loc, $unitId, $cat, $name, $code, $specs, $val, $src, $cond = 'GOOD')
+    {
+        // Cek dulu apakah aset dengan kode ini sudah ada agar tidak error duplicate
+        $exists = Asset::where('inventory_code', $code)->exists();
+        if ($exists) return Asset::where('inventory_code', $code)->first();
+
+        return Asset::create([
+            'organization_unit_id' => $org->id,
+            'user_id' => 1, // Admin
+            'asset_location_id' => $loc->id,
+            'asset_unit_id' => $unitId,
+            'category' => $cat,
+            'name' => $name,
+            'inventory_code' => $code,
+            'specifications' => $specs,
+            'acquisition_date' => Carbon::now()->subYears(rand(1, 5)),
+            'acquisition_value' => $val,
+            'source_of_acquisition' => $src,
+            'condition' => $cond,
+            'status' => $cond === 'HEAVILY_DAMAGED' ? 'MAINTENANCE' : 'ACTIVE'
+        ]);
     }
 }

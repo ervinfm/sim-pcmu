@@ -71,8 +71,6 @@ const handleDelete = (event, id) => {
         accept: () => {
             router.delete(route('finance.transactions.destroy', id), {
                 preserveScroll: true,
-                onSuccess: () => toast.add({ severity: 'success', summary: 'Berhasil', detail: 'Transaksi dihapus', life: 3000 }),
-                onError: () => toast.add({ severity: 'error', summary: 'Gagal', detail: 'Gagal menghapus (Cek Tutup Buku)', life: 3000 })
             });
         }
     });

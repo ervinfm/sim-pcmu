@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             PostSeeder::class, 
             SiteSettingSeeder::class,
             AssetSeeder::class,
+            ArchiveSeeder::class,
         ]);
     }
 }

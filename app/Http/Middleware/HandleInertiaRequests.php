@@ -36,9 +36,18 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            'session' => [
+                'lifetime' => config('session.lifetime'),
+            ],
             'site_settings' => Cache::remember('site_settings', 60*24, function () {
                 return SiteSetting::all()->pluck('value', 'key');
             }),
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+                'error' => fn () => $request->session()->get('error'),
+                'warning' => fn () => $request->session()->get('warning'),
+                'info' => fn () => $request->session()->get('info'),
+            ],
         ];
     }
 }

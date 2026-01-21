@@ -252,27 +252,40 @@ class AssetController extends Controller
 
     public function update(Request $request, Asset $asset)
     {
-        // Validasi Update (Tidak validasi file wajib, karena opsional saat edit)
+        // 1. Validasi Lengkap (Menyertakan field yang sebelumnya hilang)
         $val = $request->validate([
             'name' => 'required|string|max:255',
             'category' => 'required|string',
+            'asset_unit_id' => 'required|exists:asset_units,id', // <-- Tambahan
             'asset_location_id' => 'nullable|exists:asset_locations,id',
+            'acquisition_date' => 'required|date', // <-- Tambahan
+            'acquisition_value' => 'required|numeric|min:0', // <-- Tambahan
+            'source_of_acquisition' => 'required|string', // <-- Tambahan
             'condition' => 'required|string',
+            'description' => 'nullable|string', // <-- Tambahan
             'specifications' => 'nullable|array',
             'new_images.*' => 'nullable|image|max:2048',
         ]);
 
         DB::beginTransaction();
         try {
+            // 2. Update Semua Data
             $asset->update([
                 'name' => $val['name'],
                 'category' => $val['category'],
+                'asset_unit_id' => $val['asset_unit_id'], // <-- Update
                 'asset_location_id' => $val['asset_location_id'],
+                'acquisition_date' => $val['acquisition_date'], // <-- Update
+                'acquisition_value' => $val['acquisition_value'], // <-- Update
+                // Opsional: Update current_value jika logika bisnis mengharuskan reset nilai buku saat diedit
+                // 'current_value' => $val['acquisition_value'], 
+                'source_of_acquisition' => $val['source_of_acquisition'], // <-- Update
                 'condition' => $val['condition'],
-                'specifications' => $val['specifications'],
+                'description' => $val['description'] ?? null, // <-- Update
+                'specifications' => $val['specifications'] ?? [],
             ]);
 
-            // Handle Foto Baru Tambahan
+            // 3. Handle Foto Baru (JIKA ADA)
             if ($request->hasFile('new_images')) {
                 foreach ($request->file('new_images') as $file) {
                     $path = $file->store('assets/images', 'public');
@@ -284,8 +297,17 @@ class AssetController extends Controller
                 }
             }
 
-            // Catatan: Penghapusan foto lama biasanya ditangani via endpoint API terpisah (deleteImage)
-            // agar lebih interaktif di frontend.
+            // 4. Handle Dokumen Baru (JIKA ADA)
+            if ($request->hasFile('documents')) {
+                foreach ($request->file('documents') as $file) {
+                    $path = $file->store('assets/documents', 'public');
+                    AssetDocument::create([
+                        'asset_id' => $asset->id,
+                        'name' => $file->getClientOriginalName(),
+                        'file_path' => $path,
+                    ]);
+                }
+            }
 
             DB::commit();
             return redirect()->route('assets.show', $asset->id)->with('success', 'Data aset berhasil diperbarui.');

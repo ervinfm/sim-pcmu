@@ -35,6 +35,7 @@ use App\Http\Controllers\App\Web\PostController as AdminPostController;
 
 // --- CONTROLLERS: ADDITIONAL (Arsip, Peta & Pusat Pelaporan) ---
 use App\Http\Controllers\App\Archives\ArchiveController;
+use App\Http\Controllers\App\Archives\ArchiveDispositionController;
 use App\Http\Controllers\App\Maps\MapController;
 use App\Http\Controllers\App\Reports\ReportController as CentralReportController;
 
@@ -52,8 +53,6 @@ Route::name('public.')->group(function () {
     // Berita Publik
     Route::resource('news', PublicPostController::class);
     Route::get('/inventaris/{id}', [PublicAssetController::class, 'show'])->name('assets.show');
-    // Route::get('/news', [PublicPostController::class, 'index'])->name('posts.index');
-    // Route::get('/news/{slug}', [PublicPostController::class, 'show'])->name('posts.show');
 });
 
 
@@ -68,6 +67,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // MODUL UTAMA: DASHBOARD
     // =========================================================================
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::post('/keep-alive', function () {
+        // Laravel otomatis memperpanjang sesi saat request ini masuk
+        return response()->noContent();
+    })->name('keep-alive');
 
 
     // =========================================================================
@@ -83,11 +86,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::resource('transactions', TransactionController::class);
 
         // 2. BUKU BESAR (Pengganti Laporan)
-        // Hanya method index karena LedgerController baru kita hanya punya fungsi 'index'
         Route::get('ledgers', [LedgerController::class, 'index'])->name('ledgers.index');
 
-        // 3. ANGGARAN / RAPB (Fitur Baru)
-        // Gunakan resource, tapi mungkin nanti kita hanya butuh index, store, update
+        // 3. ANGGARAN / RAPB
         Route::resource('budgets', BudgetController::class);
 
         // 4. SETUP SALDO AWAL
@@ -109,26 +110,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('assets')->name('assets.')->group(function () {
 
         // A. MASTER DATA (Referensi: Satuan & Lokasi)
-        // URL: /assets/references | Route: assets.references.index
         Route::controller(AssetReferenceController::class)
             ->prefix('references')
             ->name('references.')
             ->group(function() {
                 Route::get('/', 'index')->name('index');
-                
-                // CRUD Unit
                 Route::post('/units', 'storeUnit')->name('units.store');
                 Route::put('/units/{unit}', 'updateUnit')->name('units.update');
                 Route::delete('/units/{unit}', 'destroyUnit')->name('units.destroy');
-                
-                // CRUD Lokasi
                 Route::post('/locations', 'storeLocation')->name('locations.store');
                 Route::put('/locations/{location}', 'updateLocation')->name('locations.update');
                 Route::delete('/locations/{location}', 'destroyLocation')->name('locations.destroy');
         });
 
         // B. SIRKULASI (Peminjaman Aset)
-        // URL: /assets/loans/... | Route: assets.loans.index
         Route::controller(AssetLoanController::class)
             ->prefix('loans')
             ->name('loans.')
@@ -137,52 +132,62 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 Route::get('/create', 'create')->name('create');
                 Route::post('/', 'store')->name('store');
                 Route::get('/{assetLoan}', 'show')->name('show');
-                Route::delete('/{assetLoan}', 'destroy')->name('destroy'); // Hapus/Batalkan
-
-                // Workflow Actions
-                Route::post('/{assetLoan}/checkout', 'checkout')->name('checkout'); // Barang Keluar
-                Route::post('/{assetLoan}/checkin', 'checkin')->name('checkin');   // Barang Masuk
-                Route::post('/{assetLoan}/reject', 'reject')->name('reject');      // Tolak Pengajuan
+                Route::delete('/{assetLoan}', 'destroy')->name('destroy'); 
+                Route::post('/{assetLoan}/checkout', 'checkout')->name('checkout');
+                Route::put('/{assetLoan}/checkin', 'checkin')->name('checkin');
+                Route::post('/{assetLoan}/reject', 'reject')->name('reject');
                 Route::patch('/{assetLoan}/status','changeStatus')->name('change-status');
         });
 
         // C. FITUR KHUSUS ASET
-        // Cetak Label QR Code
         Route::get('/{asset}/print-label', [AssetController::class, 'printLabel'])->name('print-label');
         Route::post('/print-batch', [AssetController::class, 'printBatch'])->name('print-batch');
 
     });
 
     // D. RESOURCE UTAMA ASET (CRUD)
-    // Diletakkan di luar group prefix 'assets' agar URL tetap '/assets' (bukan /assets/assets)
-    // Route Name: assets.index, assets.store, assets.show, dll.
     Route::resource('assets', AssetController::class);
 
 
     // =========================================================================
     // MODUL 3: KEANGGOTAAN (MEMBERS)
     // =========================================================================
-    // Custom Routes untuk Import & Utility (Ditempatkan SEBELUM resource)
     Route::controller(MemberController::class)->prefix('members')->name('members.')->group(function () {
-        // Import Wizard & Template
         Route::get('template-download', 'downloadTemplate')->name('download_template');
         Route::get('import-wizard', 'importWizard')->name('import_wizard');
         Route::post('import/parse', 'parseImport')->name('import.parse');
         Route::post('import/execute', 'executeImport')->name('import.execute');
-        
-        // Member Actions (Generate Akun & Update History)
         Route::post('{member}/generate-account', 'generateAccount')->name('generate_account');
         Route::post('{member}/history', 'updateHistory')->name('update_history');
     });
 
-    // Resource Route Utama (CRUD)
     Route::resource('members', MemberController::class);
 
 
     // =========================================================================
     // MODUL 4: E-ARSIP & PERSURATAN
     // =========================================================================
+    
+    // A. Custom Routes untuk Arsip (Download & Preview)
+    Route::get('archives/{archive}/download', [ArchiveController::class, 'download'])->name('archives.download');
+    Route::get('archives/{archive}/preview', [ArchiveController::class, 'preview'])->name('archives.preview');
+    
+    // B. Resource Utama Arsip (CRUD)
     Route::resource('archives', ArchiveController::class);
+
+    // C. Routes Disposisi (Alur Surat)
+    Route::controller(ArchiveDispositionController::class)->group(function () {
+        // 1. Inbox Disposisi (Surat Masuk Pegawai)
+        Route::get('dispositions/inbox', 'index')->name('dispositions.index');
+        
+        // 2. Kirim Disposisi (Dari Halaman Detail Arsip)
+        Route::get('archives/{archive}/disposition', 'create')->name('dispositions.create');
+        Route::post('archives/{archive}/disposition', 'store')->name('dispositions.store');
+        
+        // 3. Aksi Disposisi (Selesaikan / Tandai Baca)
+        Route::patch('dispositions/{disposition}/complete', 'update')->name('dispositions.update');
+        Route::post('dispositions/{disposition}/read', 'markAsRead')->name('dispositions.read');
+    });
 
 
     // =========================================================================
@@ -261,9 +266,4 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 });
 
-/*
-|--------------------------------------------------------------------------
-| 3. AUTHENTICATION
-|--------------------------------------------------------------------------
-*/
 require __DIR__.'/auth.php';

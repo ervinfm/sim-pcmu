@@ -60,7 +60,13 @@ const menuItems = computed(() => [
         header: 'TATA KELOLA ADMINISTRASI',
         show: canManageResources.value,
         items: [
-            { label: 'E-Arsip & Persuratan', route: 'archives.index', icon: 'pi pi-envelope', show: true },
+            { 
+                label: 'E-Arsip & Persuratan', 
+                route: 'archives.index', 
+                icon: 'pi pi-envelope', 
+                show: true,
+                activePaths: ['archives.*'] 
+            },
         ]
     },
     {

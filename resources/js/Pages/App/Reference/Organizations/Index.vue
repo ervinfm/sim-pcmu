@@ -1,8 +1,7 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { Head, Link, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { debounce } from 'lodash';
 
 import DataView from 'primevue/dataview';
 import Button from 'primevue/button';
@@ -15,12 +14,15 @@ import Menu from 'primevue/menu';
 import ConfirmPopup from 'primevue/confirmpopup';
 import { useConfirm } from "primevue/useconfirm";
 
-const props = defineProps({ organizations: Object, filters: Object });
+// Props sekarang menerima Array Data Full (Bukan Paginator Object)
+const props = defineProps({ organizations: Array, filters: Object });
 
-const search = ref(props.filters.search);
+// -- CLIENT SIDE STATE --
+const search = ref(props.filters.search || '');
 const sort = ref(props.filters.sort || 'name');
 const activeTab = ref(props.filters.tab || 'STRUKTURAL');
-const isLoading = ref(false);
+const currentPage = ref(1);
+const itemsPerPage = 9;
 
 const tabs = [
     { id: 'STRUKTURAL', label: 'Pimpinan', icon: 'pi pi-sitemap', activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-200', inactiveClass: 'text-emerald-700 bg-white border-emerald-200 hover:bg-emerald-50' },
@@ -28,70 +30,76 @@ const tabs = [
     { id: 'ORTOM', label: 'Ortom', icon: 'pi pi-users', activeClass: 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-200', inactiveClass: 'text-orange-700 bg-white border-orange-200 hover:bg-orange-50' }
 ];
 
-const updateParams = () => {
-    isLoading.value = true;
-    router.get(route('organizations.index'), {
-        tab: activeTab.value, search: search.value, sort: sort.value
-    }, { preserveState: true, preserveScroll: true, replace: true, onFinish: () => isLoading.value = false });
-};
+// -- LOGIC CLIENT SIDE FILTERING & SORTING --
+const filteredOrganizations = computed(() => {
+    let data = [...props.organizations];
 
-watch(search, debounce(updateParams, 500));
-watch(sort, updateParams);
-const changeTab = (id) => { activeTab.value = id; updateParams(); };
+    // 1. Filter Tab (Category)
+    data = data.filter(item => item.category === activeTab.value);
 
-// Action Logic
+    // 2. Filter Search (Client Side)
+    if (search.value) {
+        const q = search.value.toLowerCase();
+        data = data.filter(item => 
+            item.name.toLowerCase().includes(q) ||
+            (item.sk_number && item.sk_number.toLowerCase().includes(q)) ||
+            (item.type && item.type.toLowerCase().includes(q))
+        );
+    }
+
+    // 3. Sort (Client Side)
+    if (sort.value === 'newest') {
+        data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    } else {
+        // Name A-Z
+        data.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return data;
+});
+
+// -- LOGIC PAGINATION CLIENT SIDE --
+const totalPages = computed(() => Math.ceil(filteredOrganizations.value.length / itemsPerPage));
+
+const paginatedOrganizations = computed(() => {
+    const start = (currentPage.value - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return filteredOrganizations.value.slice(start, end);
+});
+
+// Reset ke halaman 1 jika filter berubah
+watch([search, sort, activeTab], () => {
+    currentPage.value = 1;
+});
+
+const changeTab = (id) => { activeTab.value = id; };
+const changePage = (page) => { if(page >= 1 && page <= totalPages.value) currentPage.value = page; };
+
+// -- ACTION LOGIC --
 const confirm = useConfirm();
 const menu = ref();
 const selectedId = ref(null);
 const selectedItem = ref(null);
 const toggleMenu = (event, item) => {
-    selectedItem.value = item;      // Set Object Item lengkap untuk Logic Menu
-    selectedId.value = item.id;     // Set ID untuk Logic Hapus/Edit
-    menu.value.toggle(event);       // Buka Menu
+    selectedItem.value = item;      
+    selectedId.value = item.id;     
+    menu.value.toggle(event);       
 };
-// Menu Item Dinamis menggunakan Computed atau Function
+
 const getMenuItems = () => {
     const items = [
-        { 
-            label: 'Lihat Detail', 
-            icon: 'pi pi-eye', 
-            command: () => router.visit(route('organizations.show', selectedItem.value.id)) 
-        },
-        { 
-            label: 'Edit Profil', 
-            icon: 'pi pi-file-edit', 
-            command: () => router.visit(route('organizations.edit', selectedItem.value.id)) 
-        },
+        { label: 'Lihat Detail', icon: 'pi pi-eye', command: () => router.visit(route('organizations.show', selectedItem.value.id)) },
+        { label: 'Edit Profil', icon: 'pi pi-file-edit', command: () => router.visit(route('organizations.edit', selectedItem.value.id)) },
         { separator: true },
-        { 
-            label: 'Kelola Struktur', 
-            icon: 'pi pi-users', 
-            class: 'text-emerald-600 font-medium',
-            // Arahkan ke halaman baru
-            command: () => router.visit(route('organizations.structure', selectedItem.value.id)) 
-        }
+        { label: 'Kelola Struktur', icon: 'pi pi-users', class: 'text-emerald-600 font-medium', command: () => router.visit(route('organizations.structure', selectedItem.value.id)) }
     ];
-
-    // Tambah menu Wilayah KHUSUS untuk Struktural (PCM/PRM)
     if (selectedItem.value?.category === 'STRUKTURAL') {
-        items.splice(3, 0, { // Insert di posisi yang pas
-            label: 'Kelola Wilayah', 
-            icon: 'pi pi-map', 
-            class: 'text-blue-600 font-medium',
-            command: () => router.visit(route('organizations.territory', selectedItem.value.id)) 
-        });
+        items.splice(3, 0, { label: 'Kelola Wilayah', icon: 'pi pi-map', class: 'text-blue-600 font-medium', command: () => router.visit(route('organizations.territory', selectedItem.value.id)) });
     }
-
     items.push(
         { separator: true },
-        { 
-            label: 'Hapus Unit', 
-            icon: 'pi pi-trash', 
-            class: 'text-red-600 font-bold', 
-            command: () => confirmDelete() 
-        }
+        { label: 'Hapus Unit', icon: 'pi pi-trash', class: 'text-red-600 font-bold', command: () => confirmDelete() }
     );
-
     return items;
 };
 
@@ -133,25 +141,31 @@ const getBorder = (cat) => cat === 'STRUKTURAL' ? 'hover:border-emerald-400' : (
                     <div class="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
                         <IconField iconPosition="left" class="w-full sm:w-72">
                             <InputIcon class="pi pi-search text-gray-400" />
-                            <InputText v-model="search" placeholder="Cari unit..." class="w-full !rounded-lg !border-gray-300 focus:!border-emerald-500" />
-                            <i v-if="isLoading" class="pi pi-spin pi-spinner absolute right-3 top-3 text-emerald-500 text-xs"></i>
+                            <InputText v-model="search" placeholder="Cari unit (Realtime)..." class="w-full !rounded-lg !border-gray-300 focus:!border-emerald-500" />
                         </IconField>
                         <Dropdown v-model="sort" :options="[{label:'Nama (A-Z)',value:'name'},{label:'Terbaru',value:'newest'}]" optionLabel="label" optionValue="value" class="w-full sm:w-48 !rounded-lg !border-gray-300" />
                     </div>
                 </div>
 
-                <DataView :value="organizations.data" :layout="'grid'" :paginator="false" class="!bg-transparent" :pt="{ content: { class: '!bg-transparent !p-0' } }">
+                <DataView :value="paginatedOrganizations" :layout="'grid'" :paginator="false" class="!bg-transparent font-dark" :pt="{ content: { class: '!bg-transparent !p-0' } }">
                     <template #grid="slotProps">
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
-                            <div v-for="(item, index) in slotProps.items" :key="index" class="col-span-1 h-full">
+                            <div v-for="(item, index) in slotProps.items" :key="item.id" class="col-span-1 h-full">
                                 <div class="group relative bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-xl transition-all duration-300 h-full flex flex-col overflow-hidden cursor-pointer" 
                                      :class="getBorder(item.category)"
                                      @click="router.visit(route('organizations.show', item.id))">
                                     
                                     <div class="p-5 border-b border-gray-50 flex items-start gap-4">
                                         <div class="w-14 h-14 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
-                                            <img v-if="item.logo_path" :src="'/storage/' + item.logo_path" class="w-full h-full object-contain p-1">
-                                            <span v-else class="text-lg font-bold text-gray-400 select-none"><img src="images/logo.png"></span>
+                                            <img v-if="item.logo_path" 
+                                                :src="'/storage/' + item.logo_path" 
+                                                class="w-full h-full object-contain p-1" 
+                                                alt="Logo">
+                                            
+                                            <img v-else 
+                                                src="/images/logo.png" 
+                                                class="w-full h-full object-contain p-1 opacity-60" 
+                                                alt="Default Logo">
                                         </div>
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center gap-2 mb-1">
@@ -200,14 +214,30 @@ const getBorder = (cat) => cat === 'STRUKTURAL' ? 'hover:border-emerald-400' : (
                             </div>
                         </div>
                     </template>
+                    <template #empty>
+                        <div class="text-center py-8 w-full text-gray-400">
+                            Tidak ada data yang cocok dengan filter pencarian.
+                        </div>
+                    </template>
                 </DataView>
 
-                <div class="flex justify-center pt-4 pb-8" v-if="organizations.links.length > 3">
+                <div class="flex justify-center pt-4 pb-8" v-if="totalPages > 1">
                     <div class="flex gap-1">
-                        <Link v-for="(link, i) in organizations.links" :key="i" :href="link.url || '#'" 
-                              class="w-9 h-9 flex items-center justify-center rounded-md text-sm font-medium transition-all"
-                              :class="{'bg-gray-900 text-white shadow-lg': link.active, 'bg-white text-gray-500 border hover:bg-gray-50': !link.active, 'opacity-50 pointer-events-none': !link.url}"
-                              v-html="link.label.replace('&laquo;', '').replace('&raquo;', '')" />
+                        <button @click="changePage(currentPage - 1)" :disabled="currentPage === 1"
+                                class="w-9 h-9 flex items-center justify-center rounded-md text-sm font-medium transition-all bg-white text-gray-500 border hover:bg-gray-50 disabled:opacity-50">
+                            &laquo;
+                        </button>
+
+                        <button v-for="page in totalPages" :key="page" @click="changePage(page)"
+                                class="w-9 h-9 flex items-center justify-center rounded-md text-sm font-medium transition-all"
+                                :class="{'bg-gray-900 text-white shadow-lg': currentPage === page, 'bg-white text-gray-500 border hover:bg-gray-50': currentPage !== page}">
+                            {{ page }}
+                        </button>
+
+                        <button @click="changePage(currentPage + 1)" :disabled="currentPage === totalPages"
+                                class="w-9 h-9 flex items-center justify-center rounded-md text-sm font-medium transition-all bg-white text-gray-500 border hover:bg-gray-50 disabled:opacity-50">
+                            &raquo;
+                        </button>
                     </div>
                 </div>
             </div>
